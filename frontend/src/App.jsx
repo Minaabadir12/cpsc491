@@ -1,30 +1,24 @@
-import React from 'react';
-import { Route, Routes } from "react-router";
-import LoginPage from './pages/HomePage';
-import CreatePage from './pages/CreatePage';
-import NoteDetailPage from './pages/NoteDetailPage';
-import toast from "react-hot-toast";
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/Login_Signup';
+import UploadFiles from './pages/UploadFiles';
+import Settings from './pages/Settings';
+import Manage from './pages/ManageFiles';
 
-const App = () => {
+function App() {
   return (
-  
-  
-  
-    <div data-theme="coffee">
-
+    <div>
+    
       <Routes>
         <Route path="/" element={<LoginPage />} />
-        <Route path="/create" element={<CreatePage />} />
-        <Route path="/note/:id" element={<NoteDetailPage />} />
-
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/upload" element={<UploadFiles />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/manage" element={<Manage />} />
+       
       </Routes>
-
-
-
-
-
-  </div>
+    </div>
   );
 }
 
-export default App
+export default App;

@@ -2,6 +2,8 @@ import express from "express";
 import notesRoutes from "./routes/notesRoutes.js";
 import { connectDB } from "./config/db.js";
 
+import cors from "cors";
+
 // package needed to use hidden secret variables, enviornment variables
 import dotenv from "dotenv";
 // calling config method to properly use it
@@ -16,6 +18,7 @@ connectDB();
 
 //middleware
 app.use(express.json()); // this middleware will parse JSON bodies: req.body
+app.use(cors());
 
 // middleware is a perfect use case for authentication
 
