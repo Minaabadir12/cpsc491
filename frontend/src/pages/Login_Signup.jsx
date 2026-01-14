@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom"; // ✅ For navigation
+import { useNavigate } from "react-router-dom";
 import "./LoginPage.css";
 
 import user_icon from "../Components/Assets/person.png";
@@ -7,15 +7,14 @@ import email_icon from "../Components/Assets/email.png";
 import password_icon from "../Components/Assets/password.png";
 
 const LoginPage = () => {
-  const [action, setAction] = useState("Sign Up"); // "Sign Up" or "Login"
+  const [action, setAction] = useState("Sign Up");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const navigate = useNavigate(); // ✅ initialize navigator
+  const navigate = useNavigate();
 
   const handleSubmit = async () => {
-    // Validate inputs
     if (!email || !password || (action === "Sign Up" && !username)) {
       alert("Please fill in all required fields.");
       return;
@@ -25,8 +24,11 @@ const LoginPage = () => {
       action === "Sign Up"
         ? "http://localhost:3000/signup"
         : "http://localhost:3000/login";
+
     const body =
-      action === "Sign Up" ? { username, email, password } : { email, password };
+      action === "Sign Up"
+        ? { username, email, password }
+        : { email, password };
 
     try {
       const res = await fetch(url, {
@@ -42,17 +44,21 @@ const LoginPage = () => {
         return;
       }
 
-      alert(data.message);
+      // ✅ LOGIN SUCCESS
+      if (action === "Login") {
+        localStorage.setItem("userId", data.userId);
+        localStorage.setItem("username", data.username);
+        navigate("/home");
+        return;
+      }
 
-      // Clear inputs after success
+      // ✅ SIGNUP SUCCESS
+      alert("Signup successful. Please log in.");
+      setAction("Login");
+
       setUsername("");
       setEmail("");
       setPassword("");
-
-      // ✅ Navigate to /home only if login
-      if (action === "Login") {
-        navigate("/home");
-      }
     } catch (err) {
       console.error(err);
       alert("Server error");
@@ -70,7 +76,6 @@ const LoginPage = () => {
         </div>
 
         <div className="inputs">
-          {/* Username only for Sign Up */}
           {action === "Sign Up" && (
             <div className="input">
               <img src={user_icon} width={25} height={25} alt="User" />
@@ -83,7 +88,6 @@ const LoginPage = () => {
             </div>
           )}
 
-          {/* Email */}
           <div className="input">
             <img src={email_icon} width={25} height={25} alt="Email" />
             <input
@@ -94,7 +98,6 @@ const LoginPage = () => {
             />
           </div>
 
-          {/* Password */}
           <div className="input">
             <img src={password_icon} width={25} height={25} alt="Password" />
             <input
@@ -106,7 +109,6 @@ const LoginPage = () => {
           </div>
         </div>
 
-        {/* Forgot password for Login */}
         {action === "Login" && (
           <div className="forgot-password">
             Lost password? <span>click here</span>
@@ -114,12 +116,10 @@ const LoginPage = () => {
         )}
 
         <div className="submit-container">
-          {/* Submit Button */}
           <div className="submit" onClick={handleSubmit}>
             {action}
           </div>
 
-          {/* Toggle Login/Sign Up Mode */}
           <div
             className="submit gray"
             onClick={() =>

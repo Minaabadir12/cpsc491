@@ -4,44 +4,54 @@ import Navbar from "../Components/Navbar";
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const [userData, setUserData] = useState(null); // Stores fetched user data
+  const [loading, setLoading] = useState(true);
 
-  // Simulated storage + account data
-  const [usedStorage, setUsedStorage] = useState(320); // GB
-  const maxStorage = 1000; // 1TB
-  const storagePercent = (usedStorage / maxStorage) * 100;
+  // Redirect to login if no user is logged in
+  useEffect(() => {
+    const userId = localStorage.getItem("userId");
+    if (!userId) {
+      navigate("/");
+      return;
+    }
 
-  const [securityInfo, setSecurityInfo] = useState({
-    score: 92,
-    lastLogin: "2025-10-05 20:34 PST",
-    location: "Los Angeles, CA, USA",
-    accountStatus: "Active",
-    twoFactorEnabled: true,
-  });
+    // Fetch user dashboard data
+    const fetchDashboard = async () => {
+      try {
+        const res = await fetch(`http://localhost:3000/api/dashboard/${userId}`);
+        if (!res.ok) throw new Error("Failed to fetch dashboard");
+        const data = await res.json();
+        setUserData(data);
+        setLoading(false);
+      } catch (err) {
+        console.error(err);
+        navigate("/"); // redirect if fetch fails
+      }
+    };
 
-  const [recentActivity, setRecentActivity] = useState([
-    { type: "Upload", file: "ProjectPlan.pdf", time: "2h ago" },
-    { type: "Login", file: "New device login", time: "5h ago" },
-    { type: "Delete", file: "OldReport.zip", time: "1d ago" },
-    { type: "Share", file: "TeamNotes.docx", time: "3d ago" },
-  ]);
-
-  const [devices, setDevices] = useState([
-    { device: "Chrome on Windows", location: "Los Angeles, CA", lastActive: "2h ago" },
-    { device: "Safari on iPhone", location: "San Diego, CA", lastActive: "Yesterday" },
-  ]);
+    fetchDashboard();
+  }, [navigate]);
 
   const handleNavigation = (path) => navigate(path);
 
-  useEffect(() => {
-    // Placeholder for future backend calls
-    // fetch('/api/dashboard').then(res => res.json()).then(data => setUsedStorage(data.usedStorage));
-  }, []);
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        Loading...
+      </div>
+    );
+  }
+
+  // Calculate storage percentage
+  const storagePercent = (userData.storageUsed / userData.storageLimit) * 100;
 
   return (
     <div className="min-h-screen bg-gray-100">
       <Navbar />
       <div className="max-w-7xl mx-auto py-10 px-6">
-        <h1 className="text-4xl font-bold text-center mb-10">GuardFile Dashboard</h1>
+        <h1 className="text-4xl font-bold text-center mb-10">
+          GuardFile Dashboard
+        </h1>
 
         {/* Top Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
@@ -49,7 +59,8 @@ const HomePage = () => {
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-3">Storage Usage</h2>
             <p className="text-gray-600 mb-2">
-              {usedStorage} GB / {maxStorage} GB (1 TB)
+              {userData.storageUsed} GB / {userData.storageLimit} GB (
+              {(userData.storageLimit / 1024).toFixed(1)} TB)
             </p>
             <div className="w-full bg-gray-200 rounded-full h-4 mb-2">
               <div
@@ -63,17 +74,20 @@ const HomePage = () => {
                 style={{ width: `${storagePercent}%` }}
               ></div>
             </div>
-            <p className="text-sm text-gray-500">{storagePercent.toFixed(1)}% used</p>
+            <p className="text-sm text-gray-500">
+              {storagePercent.toFixed(1)}% used
+            </p>
           </div>
 
           {/* Security Score */}
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-3">Security Score</h2>
             <div className="text-5xl font-bold text-green-600 mb-2">
-              {securityInfo.score}%
+              {userData.twoFactorEnabled ? "✔" : "⚠"}
             </div>
             <p className="text-gray-600 text-sm">
-              Your account is in excellent standing. Keep 2FA enabled and monitor new logins.
+              Your account is {userData.accountStatus || "Active"}.
+              Keep 2FA enabled and monitor new logins.
             </p>
           </div>
 
@@ -83,22 +97,25 @@ const HomePage = () => {
             <p>
               <span className="font-medium text-gray-700">Status:</span>{" "}
               <span className="text-green-600 font-semibold">
-                {securityInfo.accountStatus}
+                {userData.accountStatus || "Active"}
               </span>
             </p>
             <p>
               <span className="font-medium text-gray-700">2FA Enabled:</span>{" "}
               <span className="text-green-600 font-semibold">
-                {securityInfo.twoFactorEnabled ? "Yes" : "No"}
+                {userData.twoFactorEnabled ? "Yes" : "No"}
               </span>
             </p>
             <p>
-              <span className="font-medium text-gray-700">Last Login:</span>{" "}
-              {securityInfo.lastLogin}
-            </p>
-            <p>
-              <span className="font-medium text-gray-700">Location:</span>{" "}
-              {securityInfo.location}
+              <span className="font-medium text-gray-700">Joined:</span>{" "}
+              {userData?.createdAt
+                ? new Date(userData.createdAt).toLocaleDateString("en-US", {
+                    weekday: "short",
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })
+                : "Unknown"}
             </p>
           </div>
         </div>
@@ -109,15 +126,21 @@ const HomePage = () => {
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Recent Activity</h2>
             <ul className="space-y-3">
-              {recentActivity.map((item, index) => (
+              {userData.uploads.map((item, index) => (
                 <li
                   key={index}
                   className="flex justify-between border-b border-gray-200 pb-2 text-gray-700"
                 >
-                  <span>
-                    <strong>{item.type}</strong> — {item.file}
+                  <span>{item.filename}</span>
+                  <span className="text-gray-500 text-sm">
+                    {item.uploadedAt
+                      ? new Date(item.uploadedAt).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })
+                      : "Unknown"}
                   </span>
-                  <span className="text-gray-500 text-sm">{item.time}</span>
                 </li>
               ))}
             </ul>
@@ -136,11 +159,19 @@ const HomePage = () => {
                 </tr>
               </thead>
               <tbody>
-                {devices.map((d, i) => (
+                {userData.devices.map((d, i) => (
                   <tr key={i} className="border-b border-gray-200 text-gray-600">
-                    <td className="py-2">{d.device}</td>
-                    <td>{d.location}</td>
-                    <td>{d.lastActive}</td>
+                    <td className="py-2">{d.deviceName || d.device}</td>
+                    <td>{d.location || "Unknown"}</td>
+                    <td>
+                      {d.lastActive
+                        ? new Date(d.lastActive).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "Unknown"}
+                    </td>
                     <td>
                       <button className="text-red-500 hover:text-red-700 text-sm font-semibold">
                         Revoke
@@ -158,7 +189,7 @@ const HomePage = () => {
           </div>
         </div>
 
-        {/* Navigation Tiles (Settings, Upload, Manage) */}
+        {/* Navigation Tiles */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 mt-10">
           <div
             className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg cursor-pointer transition"
