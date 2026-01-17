@@ -19,6 +19,12 @@ const UserSchema = new mongoose.Schema({
     required: true,
   },
 
+  // ✅ Add phone number field
+  phone: {
+    type: String,
+    default: "", // empty string for users who haven't set a number yet
+  },
+
   // ===== DASHBOARD DATA =====
   storageUsed: {
     type: Number,

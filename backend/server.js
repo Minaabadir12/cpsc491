@@ -33,6 +33,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password_hash: { type: String, required: true },
+  phone: { type: String, default: "" },
   storageUsed: { type: Number, default: 0 }, // GB
   storageLimit: { type: Number, default: 1024 }, // GB
   plan: { type: String, default: "Free" },
@@ -97,6 +98,59 @@ app.get("/api/dashboard/:userId", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+// UPDATE PHONE NUMBER
+app.patch("/api/users/:userId/phone", async (req, res) => {
+  const { userId } = req.params;
+  const { phone } = req.body;
+
+  if (!phone) return res.status(400).json({ error: "Phone number is required" });
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    user.phone = phone; // save permanently
+    await user.save();
+
+    res.json({ message: "Phone number updated", phone: user.phone });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update phone number" });
+  }
+});
+
+// CHANGE PASSWORD
+// UPDATE PASSWORD
+app.patch("/api/users/:userId/password", async (req, res) => {
+  const { userId } = req.params;
+  const { oldPassword, newPassword } = req.body;
+
+  if (!oldPassword || !newPassword) {
+    return res.status(400).json({ error: "Old and new passwords are required" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const match = await bcrypt.compare(oldPassword, user.password_hash);
+    if (!match) return res.status(401).json({ error: "Old password is incorrect" });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password_hash = hashedPassword;
+    await user.save();
+
+    res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update password" });
+  }
+});
+
+
+
+
 
 // UPLOAD FILES
 app.post("/api/upload/:userId", upload.array("files"), async (req, res) => {
