@@ -7,6 +7,12 @@ const HomePage = () => {
   const [userData, setUserData] = useState(null); // Stores fetched user data
   const [loading, setLoading] = useState(true);
 
+ // Helper function to clean filenames
+const getDisplayName = (filename) => {
+  if (!filename) return '';
+  return filename.replace(/^\d+-\d+/, '');
+};
+
   // Redirect to login if no user is logged in
   useEffect(() => {
     const userId = localStorage.getItem("userId");
@@ -131,7 +137,7 @@ const HomePage = () => {
                   key={index}
                   className="flex justify-between border-b border-gray-200 pb-2 text-gray-700"
                 >
-                  <span>{item.filename}</span>
+                  <span>{getDisplayName(item.filename)}</span>
                   <span className="text-gray-500 text-sm">
                     {item.uploadedAt
                       ? new Date(item.uploadedAt).toLocaleDateString("en-US", {

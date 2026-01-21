@@ -11,6 +11,12 @@ const ManageFiles = () => {
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
+  // Helper function to clean filenames for display
+  const getDisplayName = (filename) => {
+    if (!filename) return '';
+    return filename.replace(/^\d+-\d+/, '');
+  };
+
   // ✅ Get userId safely
   const userId = localStorage.getItem("userId");
 
@@ -64,7 +70,7 @@ const ManageFiles = () => {
   const totalStorage = userData?.storageLimit ?? 1; // avoid divide by zero
 
   const filteredFiles = files.filter((file) =>
-    file.filename?.toLowerCase().includes(searchTerm.toLowerCase())
+    getDisplayName(file.filename)?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleDownload = (filename) => {
@@ -75,7 +81,7 @@ const ManageFiles = () => {
   const handleDelete = async (filename) => {
     if (!filename) return;
 
-    if (!window.confirm(`Are you sure you want to delete "${filename}"?`))
+    if (!window.confirm(`Are you sure you want to delete "${getDisplayName(filename)}"?`))
       return;
 
     try {
@@ -100,7 +106,7 @@ const ManageFiles = () => {
   };
 
   const handleShare = (filename) => {
-    alert(`Share ${filename}`);
+    alert(`Share ${getDisplayName(filename)}`);
   };
 
   return (
@@ -163,7 +169,7 @@ const ManageFiles = () => {
               className="bg-white rounded-lg shadow p-4 flex flex-col justify-between"
             >
               <div>
-                <h3 className="font-semibold text-gray-800">{file.filename}</h3>
+                <h3 className="font-semibold text-gray-800">{getDisplayName(file.filename)}</h3>
                 <p className="text-sm text-gray-500">
                   {(file.size ?? 0).toFixed(2)} MB
                 </p>
