@@ -11,11 +11,12 @@ const ManageFiles = () => {
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Helper function to clean filenames for display
-  const getDisplayName = (filename) => {
-    if (!filename) return '';
-    return filename.replace(/^\d+-\d+/, '');
-  };
+  // Helper function to clean filenames
+const getDisplayName = (filename) => {
+  if (!filename) return '';
+  // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
+  return filename.replace(/^\d+-/, '');
+};
 
   // ✅ Get userId safely
   const userId = localStorage.getItem("userId");

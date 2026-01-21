@@ -7,10 +7,11 @@ const HomePage = () => {
   const [userData, setUserData] = useState(null); // Stores fetched user data
   const [loading, setLoading] = useState(true);
 
- // Helper function to clean filenames
+// Helper function to clean filenames
 const getDisplayName = (filename) => {
   if (!filename) return '';
-  return filename.replace(/^\d+-\d+/, '');
+  // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
+  return filename.replace(/^\d+-/, '');
 };
 
   // Redirect to login if no user is logged in
