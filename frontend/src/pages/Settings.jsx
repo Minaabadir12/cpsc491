@@ -60,15 +60,42 @@ const Settings = () => {
     fetchUser();
   }, [userId, token, navigate]);
 
+  // Handle phone number input - only allow numbers
+  const handlePhoneInputChange = (e) => {
+    const value = e.target.value;
+    // Only allow digits, limit to 10 characters
+    const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+    setPhoneInput(digitsOnly);
+  };
+
+  // Format phone number for display (optional: formats as (123) 456-7890)
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return "";
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    }
+    return phone;
+  };
+
   // Update phone number
   const handlePhoneSave = async () => {
-    if (!phoneInput.trim()) return alert("Phone number cannot be empty");
+    // Validate phone number
+    if (!phoneInput.trim()) {
+      return alert("Phone number cannot be empty");
+    }
+    
+    const digitsOnly = phoneInput.replace(/\D/g, '');
+    
+    if (digitsOnly.length !== 10) {
+      return alert("Phone number must be exactly 10 digits");
+    }
 
     try {
       const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/phone`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneInput.trim() }),
+        body: JSON.stringify({ phone: digitsOnly }),
       });
 
       if (res.status === 401 || res.status === 403) {
@@ -161,16 +188,18 @@ const Settings = () => {
               {editingPhone ? (
                 <div className="mt-2">
                   <input
-                    type="text"
+                    type="tel"
                     value={phoneInput}
-                    onChange={(e) => setPhoneInput(e.target.value)}
+                    onChange={handlePhoneInputChange}
                     className="input input-bordered w-full max-w-sm"
-                    placeholder="Enter phone number"
+                    placeholder="Enter 10-digit phone number"
+                    maxLength={10}
                   />
                   <div className="mt-2">
                     <button
                       onClick={handlePhoneSave}
                       className="btn btn-primary"
+                      disabled={phoneInput.length !== 10}
                     >
                       Save
                     </button>
@@ -187,7 +216,7 @@ const Settings = () => {
                 </div>
               ) : (
                 <>
-                  {user.phone || "Not set"}
+                  {user.phone ? formatPhoneNumber(user.phone) : "Not set"}
                   <button
                     onClick={() => setEditingPhone(true)}
                     className="btn btn-sm btn-secondary ml-2"

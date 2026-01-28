@@ -3,7 +3,6 @@ export const fetchWithAuth = async (url, options = {}) => {
   const token = localStorage.getItem("token");
   
   if (!token) {
-    console.log("❌ No token found, redirecting to login");
     // No token, redirect to login
     window.location.href = "/";
     throw new Error("No authentication token");
