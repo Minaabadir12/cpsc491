@@ -25,7 +25,7 @@ const Settings = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // Notification/security toggles
+  // Notification/security toggles (display-only for now)
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [loginAlerts, setLoginAlerts] = useState(true);
   const [twoFactorAuth, setTwoFactorAuth] = useState(true);
@@ -46,14 +46,18 @@ const Settings = () => {
 
     const fetchUser = async () => {
       try {
-        const res = await fetchWithAuth(`http://localhost:3000/api/dashboard/${userId}`);
+        const res = await fetchWithAuth(
+          `http://localhost:3000/api/dashboard/${userId}`
+        );
         if (!res.ok) throw new Error("Failed to fetch user data");
+
         const data = await res.json();
         setUser({
           username: data.username,
           email: data.email,
           phone: data.phone || "",
         });
+
         setPhoneInput(data.phone || "");
         setTwoFactorAuth(data.twoFactorEnabled || false);
       } catch (err) {
@@ -70,17 +74,18 @@ const Settings = () => {
   // Handle phone number input - only allow numbers
   const handlePhoneInputChange = (e) => {
     const value = e.target.value;
-    // Only allow digits, limit to 10 characters
-    const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+    const digitsOnly = value.replace(/\D/g, "").slice(0, 10);
     setPhoneInput(digitsOnly);
   };
 
-  // Format phone number for display (optional: formats as (123) 456-7890)
+  // Format phone number for display (optional: (123) 456-7890)
   const formatPhoneNumber = (phone) => {
     if (!phone) return "";
-    const cleaned = phone.replace(/\D/g, '');
+    const cleaned = phone.replace(/\D/g, "");
     if (cleaned.length === 10) {
-      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(
+        6
+      )}`;
     }
     return phone;
   };
@@ -105,23 +110,24 @@ const Settings = () => {
 
   // Update phone number
   const handlePhoneSave = async () => {
-    // Validate phone number
     if (!phoneInput.trim()) {
       return alert("Phone number cannot be empty");
     }
-    
-    const digitsOnly = phoneInput.replace(/\D/g, '');
-    
+
+    const digitsOnly = phoneInput.replace(/\D/g, "");
     if (digitsOnly.length !== 10) {
       return alert("Phone number must be exactly 10 digits");
     }
 
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/phone`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: digitsOnly }),
-      });
+      const res = await fetchWithAuth(
+        `http://localhost:3000/api/users/${userId}/phone`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: digitsOnly }),
+        }
+      );
 
       if (res.status === 401 || res.status === 403) {
         alert("Session expired. Please log in again.");
@@ -154,11 +160,14 @@ const Settings = () => {
     }
 
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/password`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ oldPassword, newPassword }),
-      });
+      const res = await fetchWithAuth(
+        `http://localhost:3000/api/users/${userId}/password`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ oldPassword, newPassword }),
+        }
+      );
 
       if (res.status === 401 || res.status === 403) {
         alert("Session expired. Please log in again.");
@@ -179,7 +188,6 @@ const Settings = () => {
     }
   };
 
-<<<<<<< HEAD
   // =========================
   // PASSKEY ACTIONS
   // =========================
@@ -189,21 +197,27 @@ const Settings = () => {
     try {
       setPasskeyStatus("working");
 
-      const optRes = await fetch("http://localhost:3000/webauthn/register/options", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
+      const optRes = await fetch(
+        "http://localhost:3000/webauthn/register/options",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId }),
+        }
+      );
       const options = await optRes.json();
       if (!optRes.ok) throw new Error(options.error || "Failed to start passkey");
 
       const attResp = await startRegistration(options);
 
-      const verRes = await fetch("http://localhost:3000/webauthn/register/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, attResp }),
-      });
+      const verRes = await fetch(
+        "http://localhost:3000/webauthn/register/verify",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, attResp }),
+        }
+      );
       const result = await verRes.json();
       if (!verRes.ok) throw new Error(result.error || "Passkey verification failed");
 
@@ -249,7 +263,7 @@ const Settings = () => {
       setPasskeyStatus("idle");
     }
   };
-=======
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -257,14 +271,16 @@ const Settings = () => {
       </div>
     );
   }
->>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b
 
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="max-w-5xl mx-auto py-10 px-6">
         {/* Back button */}
         <div className="flex justify-end mb-4">
-          <button onClick={() => navigate("/home")} className="btn btn-outline btn-accent">
+          <button
+            onClick={() => navigate("/home")}
+            className="btn btn-outline btn-accent"
+          >
             Back to Dashboard
           </button>
         </div>
@@ -274,43 +290,15 @@ const Settings = () => {
         {/* Personal Details */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Personal Details</h2>
-<<<<<<< HEAD
-          <p>
-            <strong>Username:</strong> {user.username}
-          </p>
-          <p>
-            <strong>Email:</strong> {user.email}
-          </p>
-          <p>
-            <strong>Phone:</strong>{" "}
-            {editingPhone ? (
-              <>
-                <input
-                  type="text"
-                  value={phoneInput}
-                  onChange={(e) => setPhoneInput(e.target.value)}
-                  className="input input-bordered w-full max-w-sm"
-                />
-                <button onClick={handlePhoneSave} className="btn btn-primary ml-2">
-                  Save
-                </button>
-                <button onClick={() => setEditingPhone(false)} className="btn btn-outline ml-2">
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <>
-                {user.phone || "Not set"}
-                <button onClick={() => setEditingPhone(true)} className="btn btn-sm btn-secondary ml-2">
-                  {user.phone ? "Change" : "Add"}
-                </button>
-              </>
-            )}
-          </p>
-=======
+
           <div className="space-y-2">
-            <p><strong>Username:</strong> {user.username}</p>
-            <p><strong>Email:</strong> {user.email}</p>
+            <p>
+              <strong>Username:</strong> {user.username}
+            </p>
+            <p>
+              <strong>Email:</strong> {user.email}
+            </p>
+
             <div>
               <strong>Phone:</strong>{" "}
               {editingPhone ? (
@@ -355,14 +343,11 @@ const Settings = () => {
               )}
             </div>
           </div>
->>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b
         </div>
 
         {/* Biometrics / Passkeys */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Biometrics</h2>
-          <p className="text-sm text-gray-600 mb-4">
-          </p>
 
           <div className="flex flex-wrap gap-3 items-start">
             <button
@@ -383,11 +368,12 @@ const Settings = () => {
                 className="btn btn-outline btn-primary"
                 disabled={passkeyStatus === "working"}
               >
-                {passkeyStatus === "working" ? "Working..." : "Verify passkey on this device"}
+                {passkeyStatus === "working"
+                  ? "Working..."
+                  : "Verify passkey on this device"}
               </button>
 
-              <p className="text-sm text-gray-500 mt-2">
-              </p>
+              <p className="text-sm text-gray-500 mt-2"></p>
             </div>
           </div>
         </div>
@@ -417,9 +403,7 @@ const Settings = () => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
-<<<<<<< HEAD
-            <button onClick={handlePasswordUpdate} className="btn btn-primary mt-2">
-=======
+
             {newPassword && confirmPassword && (
               <p
                 style={{
@@ -432,11 +416,8 @@ const Settings = () => {
                   : "Passwords do not match"}
               </p>
             )}
-            <button
-              onClick={handlePasswordUpdate}
-              className="btn btn-primary mt-2"
-            >
->>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b
+
+            <button onClick={handlePasswordUpdate} className="btn btn-primary mt-2">
               Update Password
             </button>
           </div>
@@ -455,6 +436,7 @@ const Settings = () => {
               />
               <span>Enable Two-Factor Authentication</span>
             </label>
+
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -464,6 +446,7 @@ const Settings = () => {
               />
               <span>Login Alerts</span>
             </label>
+
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -473,6 +456,7 @@ const Settings = () => {
               />
               <span>Email Notifications</span>
             </label>
+
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -483,6 +467,7 @@ const Settings = () => {
               <span>Enable Data Encryption</span>
             </label>
           </div>
+
           <p className="text-sm text-gray-500 mt-4">
             Note: Security preferences are currently for display only. Backend integration coming soon.
           </p>
@@ -492,11 +477,5 @@ const Settings = () => {
   );
 };
 
-<<<<<<< HEAD
 export default Settings;
 
-
-
-=======
-export default Settings;
->>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b
