@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useNavigate } from "react-router-dom";
 import { CloudUpload } from "lucide-react";
+import { fetchWithAuth, logout } from "../utils/api";
 
 const UploadFiles = () => {
   const navigate = useNavigate();
@@ -9,18 +10,21 @@ const UploadFiles = () => {
   const [files, setFiles] = useState([]);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
 
   // 🔹 Fetch REAL dashboard data (storage + limits)
   useEffect(() => {
     const userId = localStorage.getItem("userId");
-    if (!userId) {
+    const token = localStorage.getItem("token");
+    
+    if (!userId || !token) {
       navigate("/");
       return;
     }
 
     const fetchDashboard = async () => {
       try {
-        const res = await fetch(
+        const res = await fetchWithAuth(
           `http://localhost:3000/api/dashboard/${userId}`
         );
 
@@ -30,7 +34,7 @@ const UploadFiles = () => {
         setUserData(data);
       } catch (err) {
         console.error(err);
-        navigate("/");
+        // fetchWithAuth will handle logout if token is invalid
       } finally {
         setLoading(false);
       }
@@ -62,6 +66,22 @@ const UploadFiles = () => {
     );
   }
 
+  if (!userData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-xl mb-4">Failed to load user data</p>
+          <button 
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Return to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ✅ REAL values from backend
   const usedStorage = userData?.storageUsed ?? 0;
   const totalStorage = userData?.storageLimit ?? 1000;
@@ -70,7 +90,7 @@ const UploadFiles = () => {
     100
   );
 
-  // 🔹 REAL upload request (backend endpoint required)
+  // 🔹 AUTHENTICATED upload request
   const handleUpload = async () => {
     if (files.length === 0) {
       alert("No files selected");
@@ -78,20 +98,41 @@ const UploadFiles = () => {
     }
 
     const userId = localStorage.getItem("userId");
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      alert("Session expired. Please log in again.");
+      logout();
+      return;
+    }
+
     const formData = new FormData();
 
     files.forEach((file) => {
       formData.append("files", file);
     });
 
+    setUploading(true);
+
     try {
       const res = await fetch(
         `http://localhost:3000/api/upload/${userId}`,
         {
           method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            // Don't set Content-Type for FormData - browser sets it automatically with boundary
+          },
           body: formData,
         }
       );
+
+      // Check for authentication errors
+      if (res.status === 401 || res.status === 403) {
+        alert("Session expired. Please log in again.");
+        logout();
+        return;
+      }
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
@@ -103,10 +144,13 @@ const UploadFiles = () => {
       setUserData((prev) => ({
         ...prev,
         storageUsed: data.storageUsed,
+        uploads: data.uploads,
       }));
     } catch (err) {
       console.error(err);
-      alert("Upload failed");
+      alert("Upload failed: " + err.message);
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -133,7 +177,13 @@ const UploadFiles = () => {
         <h2 className="text-xl font-semibold mb-2">Storage Usage</h2>
         <div className="w-full bg-gray-200 rounded-full h-4 mb-2">
           <div
-            className="bg-blue-600 h-4 rounded-full transition-all duration-500"
+            className={`h-4 rounded-full transition-all duration-500 ${
+              usedPercentage > 90
+                ? "bg-red-500"
+                : usedPercentage > 70
+                ? "bg-yellow-500"
+                : "bg-blue-600"
+            }`}
             style={{ width: `${usedPercentage}%` }}
           />
         </div>
@@ -184,6 +234,7 @@ const UploadFiles = () => {
                 <button
                   onClick={() => removeFile(index)}
                   className="text-red-600 hover:text-red-800 font-semibold"
+                  disabled={uploading}
                 >
                   Remove
                 </button>
@@ -195,8 +246,9 @@ const UploadFiles = () => {
             <button
               onClick={handleUpload}
               className="btn btn-primary"
+              disabled={uploading}
             >
-              Upload Files
+              {uploading ? "Uploading..." : "Upload Files"}
             </button>
           </div>
         </div>

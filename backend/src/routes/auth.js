@@ -16,7 +16,7 @@ router.post("/resetpassword", async (req, res) => {
   try {
     const user = await User.findOne({ email });
 
-    // ✅ CHANGE: return ERROR if user does not exist
+    //  CHANGE: return ERROR if user does not exist
     if (!user) {
       return res.status(404).json({ error: "User does not exist" });
     }
@@ -51,7 +51,7 @@ router.post("/resetpassword", async (req, res) => {
       `,
     });
 
-    // ✅ Only success if email actually sent
+    //  Only success if email actually sent
     return res.status(200).json({ message: "Email sent" });
 
   } catch (err) {

@@ -6,8 +6,10 @@ import Settings from "./pages/Settings";
 import Manage from "./pages/ManageFiles";
 import ResetPassword from "./pages/ResetPassword";
 import NewPassword from "./pages/NewPassword";
+import { useInactivityTimer } from "./hooks/useInactivityTimer";
 
 function App() {
+  useInactivityTimer();
   return (
     <Routes>
       <Route path="/" element={<LoginPage />} />

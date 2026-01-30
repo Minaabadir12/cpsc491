@@ -11,12 +11,20 @@ const LoginPage = () => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const navigate = useNavigate();
 
   const handleSubmit = async () => {
+    // Basic required field validation
     if (!email || !password || (action === "Sign Up" && !username)) {
       alert("Please fill in all required fields.");
+      return;
+    }
+
+    // Confirm password match validation for Sign Up
+    if (action === "Sign Up" && password !== confirmPassword) {
+      alert("Passwords do not match.");
       return;
     }
 
@@ -46,6 +54,8 @@ const LoginPage = () => {
 
       // ✅ LOGIN SUCCESS
       if (action === "Login") {
+        // Store the JWT token
+        localStorage.setItem("token", data.token);
         localStorage.setItem("userId", data.userId);
         localStorage.setItem("username", data.username);
         navigate("/home");
@@ -56,9 +66,11 @@ const LoginPage = () => {
       alert("Signup successful. Please log in.");
       setAction("Login");
 
+      // Clear all fields
       setUsername("");
       setEmail("");
       setPassword("");
+      setConfirmPassword("");
     } catch (err) {
       console.error(err);
       alert("Server error");
@@ -107,6 +119,33 @@ const LoginPage = () => {
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
+
+          {/* Confirm Password for Sign Up */}
+          {action === "Sign Up" && (
+            <div className="input">
+              <img src={password_icon} width={25} height={25} alt="Confirm Password" />
+              <input
+                type="password"
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+              {/* Real-time password match feedback */}
+              {confirmPassword && (
+                <p
+                  style={{
+                    color: password === confirmPassword ? "green" : "red",
+                    fontSize: "0.8rem",
+                    marginTop: "0.2rem",
+                  }}
+                >
+                  {password === confirmPassword
+                    ? "Passwords match"
+                    : "Passwords do not match"}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {action === "Login" && (

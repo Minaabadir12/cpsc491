@@ -1,38 +1,42 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "../Components/Navbar";
+import { fetchWithAuth, logout } from "../utils/api";
 
 const HomePage = () => {
   const navigate = useNavigate();
-  const [userData, setUserData] = useState(null); // Stores fetched user data
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-// Helper function to clean filenames
-const getDisplayName = (filename) => {
-  if (!filename) return '';
-  // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
-  return filename.replace(/^\d+-/, '');
-};
+  // Helper function to clean filenames
+  const getDisplayName = (filename) => {
+    if (!filename) return '';
+    // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
+    return filename.replace(/^\d+-/, '');
+  };
 
   // Redirect to login if no user is logged in
   useEffect(() => {
     const userId = localStorage.getItem("userId");
-    if (!userId) {
+    const token = localStorage.getItem("token");
+    
+    if (!userId || !token) {
       navigate("/");
       return;
     }
 
-    // Fetch user dashboard data
+    // Fetch user dashboard data with authentication
     const fetchDashboard = async () => {
       try {
-        const res = await fetch(`http://localhost:3000/api/dashboard/${userId}`);
+        const res = await fetchWithAuth(`http://localhost:3000/api/dashboard/${userId}`);
         if (!res.ok) throw new Error("Failed to fetch dashboard");
         const data = await res.json();
         setUserData(data);
         setLoading(false);
       } catch (err) {
         console.error(err);
-        navigate("/"); // redirect if fetch fails
+        // fetchWithAuth will handle logout if token is invalid
+        setLoading(false);
       }
     };
 
@@ -40,6 +44,12 @@ const getDisplayName = (filename) => {
   }, [navigate]);
 
   const handleNavigation = (path) => navigate(path);
+
+  const handleLogout = () => {
+    if (window.confirm("Are you sure you want to logout?")) {
+      logout();
+    }
+  };
 
   if (loading) {
     return (
@@ -49,12 +59,30 @@ const getDisplayName = (filename) => {
     );
   }
 
+  if (!userData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-xl mb-4">Failed to load dashboard</p>
+          <button 
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Return to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Calculate storage percentage
   const storagePercent = (userData.storageUsed / userData.storageLimit) * 100;
+  const storageUsedRounded = userData.storageUsed.toFixed(2);
+  const storageLimitRounded = userData.storageLimit.toFixed(2);
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <Navbar />
+      <Navbar onLogout={handleLogout} />
       <div className="max-w-7xl mx-auto py-10 px-6">
         <h1 className="text-4xl font-bold text-center mb-10">
           GuardFile Dashboard
@@ -66,9 +94,10 @@ const getDisplayName = (filename) => {
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-xl font-semibold mb-3">Storage Usage</h2>
             <p className="text-gray-600 mb-2">
-              {userData.storageUsed} GB / {userData.storageLimit} GB (
-              {(userData.storageLimit / 1024).toFixed(1)} TB)
+              {storageUsedRounded} GB / {storageLimitRounded} GB (
+              {(userData.storageLimit / 1024).toFixed(2)} TB)
             </p>
+
             <div className="w-full bg-gray-200 rounded-full h-4 mb-2">
               <div
                 className={`h-4 rounded-full transition-all duration-500 ${
@@ -132,67 +161,77 @@ const getDisplayName = (filename) => {
           {/* Recent Activity */}
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Recent Activity</h2>
-            <ul className="space-y-3">
-              {userData.uploads.map((item, index) => (
-                <li
-                  key={index}
-                  className="flex justify-between border-b border-gray-200 pb-2 text-gray-700"
-                >
-                  <span>{getDisplayName(item.filename)}</span>
-                  <span className="text-gray-500 text-sm">
-                    {item.uploadedAt
-                      ? new Date(item.uploadedAt).toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })
-                      : "Unknown"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Device Management */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-2xl font-semibold mb-4">Active Devices</h2>
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-300 text-gray-700">
-                  <th className="py-2">Device</th>
-                  <th>Location</th>
-                  <th>Last Active</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {userData.devices.map((d, i) => (
-                  <tr key={i} className="border-b border-gray-200 text-gray-600">
-                    <td className="py-2">{d.deviceName || d.device}</td>
-                    <td>{d.location || "Unknown"}</td>
-                    <td>
-                      {d.lastActive
-                        ? new Date(d.lastActive).toLocaleDateString("en-US", {
+            {userData.uploads && userData.uploads.length > 0 ? (
+              <ul className="space-y-3">
+                {userData.uploads.map((item, index) => (
+                  <li
+                    key={index}
+                    className="flex justify-between border-b border-gray-200 pb-2 text-gray-700"
+                  >
+                    <span>{getDisplayName(item.filename)}</span>
+                    <span className="text-gray-500 text-sm">
+                      {item.uploadedAt
+                        ? new Date(item.uploadedAt).toLocaleDateString("en-US", {
                             year: "numeric",
                             month: "short",
                             day: "numeric",
                           })
                         : "Unknown"}
-                    </td>
-                    <td>
-                      <button className="text-red-500 hover:text-red-700 text-sm font-semibold">
-                        Revoke
-                      </button>
-                    </td>
-                  </tr>
+                    </span>
+                  </li>
                 ))}
-              </tbody>
-            </table>
-            <div className="text-right mt-3">
-              <button className="text-blue-600 hover:text-blue-800 text-sm">
-                Sign out all devices
-              </button>
-            </div>
+              </ul>
+            ) : (
+              <p className="text-gray-500">No files uploaded yet.</p>
+            )}
+          </div>
+
+          {/* Device Management */}
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-2xl font-semibold mb-4">Active Devices</h2>
+            {userData.devices && userData.devices.length > 0 ? (
+              <>
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-300 text-gray-700">
+                      <th className="py-2">Device</th>
+                      <th>Location</th>
+                      <th>Last Active</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userData.devices.map((d, i) => (
+                      <tr key={i} className="border-b border-gray-200 text-gray-600">
+                        <td className="py-2">{d.deviceName || d.device}</td>
+                        <td>{d.location || "Unknown"}</td>
+                        <td>
+                          {d.lastActive
+                            ? new Date(d.lastActive).toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              })
+                            : "Unknown"}
+                        </td>
+                        <td>
+                          <button className="text-red-500 hover:text-red-700 text-sm font-semibold">
+                            Revoke
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="text-right mt-3">
+                  <button className="text-blue-600 hover:text-blue-800 text-sm">
+                    Sign out all devices
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="text-gray-500">No devices tracked.</p>
+            )}
           </div>
         </div>
 

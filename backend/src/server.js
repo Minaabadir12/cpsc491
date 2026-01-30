@@ -8,12 +8,13 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
+import jwt from "jsonwebtoken";
 import authRoutes from "./routes/auth.js";
 import User from "./models/User.js";
 import dotenv from "dotenv";
 dotenv.config();
 
-
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-CHANGE-THIS-IN-PRODUCTION";
 
 const uploadDir = "uploads";
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -32,6 +33,20 @@ app.use(express.json());
 app.use(webauthnRoutes);
 app.use(authRoutes);
 
+// ------------------- MIDDLEWARE -------------------
+// JWT Authentication Middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) return res.status(401).json({ error: "No token provided" });
+  
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: "Invalid or expired token" });
+    req.user = user;
+    next();
+  });
+}
 
 // ------------------- MONGODB -------------------
 const mongoURI =
@@ -40,8 +55,6 @@ const mongoURI =
 mongoose.connect(mongoURI)
   .then(() => console.log("Connected to MongoDB Atlas"))
   .catch(err => console.error("MongoDB connection error:", err));
-
-
 
 // ------------------- ROUTES -------------------
 app.get("/", (req, res) => res.send("Backend running"));
@@ -68,31 +81,66 @@ app.post("/login", async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ error: "Invalid credentials" });
-    res.json({ message: "Login successful", userId: user._id, username: user.username });
+    
+    // Create JWT token with 10 min expiration
+    const token = jwt.sign(
+      { userId: user._id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: '10m' }
+    );
+    
+    res.json({ 
+      message: "Login successful", 
+      token,
+      userId: user._id, 
+      username: user.username 
+    });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// DASHBOARD FETCH
-app.get("/api/dashboard/:userId", async (req, res) => {
+// REFRESH TOKEN - extends session on activity
+app.post("/refresh-token", authenticateToken, (req, res) => {
+  const newToken = jwt.sign(
+    { userId: req.user.userId, username: req.user.username },
+    JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+  
+  res.json({ token: newToken });
+});
+
+// DASHBOARD FETCH - PROTECTED
+app.get("/api/dashboard/:userId", authenticateToken, async (req, res) => {
   const { userId } = req.params;
+  
+  // Verify the userId matches the token
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
+  
   try {
     const user = await User.findById(userId).select("-password_hash");
     if (!user) return res.status(404).json({ message: "User not found" });
-    res.json(user.toObject()); // send full user object
+    res.json(user.toObject());
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// UPDATE PHONE NUMBER
-app.patch("/api/users/:userId/phone", async (req, res) => {
+// UPDATE PHONE NUMBER - PROTECTED
+app.patch("/api/users/:userId/phone", authenticateToken, async (req, res) => {
   const { userId } = req.params;
   const { phone } = req.body;
+
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
 
   if (!phone) return res.status(400).json({ error: "Phone number is required" });
 
@@ -100,7 +148,7 @@ app.patch("/api/users/:userId/phone", async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    user.phone = phone; // save permanently
+    user.phone = phone;
     await user.save();
 
     res.json({ message: "Phone number updated", phone: user.phone });
@@ -110,11 +158,14 @@ app.patch("/api/users/:userId/phone", async (req, res) => {
   }
 });
 
-// CHANGE PASSWORD
-// UPDATE PASSWORD
-app.patch("/api/users/:userId/password", async (req, res) => {
+// UPDATE PASSWORD - PROTECTED
+app.patch("/api/users/:userId/password", authenticateToken, async (req, res) => {
   const { userId } = req.params;
   const { oldPassword, newPassword } = req.body;
+
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
 
   if (!oldPassword || !newPassword) {
     return res.status(400).json({ error: "Old and new passwords are required" });
@@ -138,16 +189,14 @@ app.patch("/api/users/:userId/password", async (req, res) => {
   }
 });
 
-// RESET PASSWORD
-
-
-
-
-
-
-// UPLOAD FILES
-app.post("/api/upload/:userId", upload.array("files"), async (req, res) => {
+// UPLOAD FILES - PROTECTED
+app.post("/api/upload/:userId", authenticateToken, upload.array("files"), async (req, res) => {
   const { userId } = req.params;
+  
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
+  
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -169,9 +218,14 @@ app.post("/api/upload/:userId", upload.array("files"), async (req, res) => {
   }
 });
 
-// DELETE FILE
-app.delete("/api/files/:userId/:filename", async (req, res) => {
+// DELETE FILE - PROTECTED
+app.delete("/api/files/:userId/:filename", authenticateToken, async (req, res) => {
   const { userId, filename } = req.params;
+  
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
+  
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });

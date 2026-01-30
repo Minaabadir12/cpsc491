@@ -1,16 +1,20 @@
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { fetchWithAuth, logout } from "../utils/api";
 
 const Settings = () => {
   const navigate = useNavigate();
   const userId = localStorage.getItem("userId");
+  const token = localStorage.getItem("token");
 
   const [user, setUser] = useState({
     username: "",
     email: "",
     phone: "",
   });
+
+  const [loading, setLoading] = useState(true);
 
   // Phone editing
   const [editingPhone, setEditingPhone] = useState(false);
@@ -35,14 +39,14 @@ const Settings = () => {
 
   // Load user data from backend
   useEffect(() => {
-    if (!userId) {
+    if (!userId || !token) {
       navigate("/");
       return;
     }
 
     const fetchUser = async () => {
       try {
-        const res = await fetch(`http://localhost:3000/api/dashboard/${userId}`);
+        const res = await fetchWithAuth(`http://localhost:3000/api/dashboard/${userId}`);
         if (!res.ok) throw new Error("Failed to fetch user data");
         const data = await res.json();
         setUser({
@@ -54,12 +58,32 @@ const Settings = () => {
         setTwoFactorAuth(data.twoFactorEnabled || false);
       } catch (err) {
         console.error(err);
-        navigate("/");
+        // fetchWithAuth will handle logout if token is invalid
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchUser();
-  }, [userId, navigate]);
+  }, [userId, token, navigate]);
+
+  // Handle phone number input - only allow numbers
+  const handlePhoneInputChange = (e) => {
+    const value = e.target.value;
+    // Only allow digits, limit to 10 characters
+    const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+    setPhoneInput(digitsOnly);
+  };
+
+  // Format phone number for display (optional: formats as (123) 456-7890)
+  const formatPhoneNumber = (phone) => {
+    if (!phone) return "";
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    }
+    return phone;
+  };
 
   // Check if user already has a passkey
   useEffect(() => {
@@ -81,14 +105,30 @@ const Settings = () => {
 
   // Update phone number
   const handlePhoneSave = async () => {
-    if (!phoneInput.trim()) return alert("Phone number cannot be empty");
+    // Validate phone number
+    if (!phoneInput.trim()) {
+      return alert("Phone number cannot be empty");
+    }
+    
+    const digitsOnly = phoneInput.replace(/\D/g, '');
+    
+    if (digitsOnly.length !== 10) {
+      return alert("Phone number must be exactly 10 digits");
+    }
 
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${userId}/phone`, {
+      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/phone`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneInput.trim() }),
+        body: JSON.stringify({ phone: digitsOnly }),
       });
+
+      if (res.status === 401 || res.status === 403) {
+        alert("Session expired. Please log in again.");
+        logout();
+        return;
+      }
+
       const data = await res.json();
       if (!res.ok) return alert(data.error || "Failed to save phone number");
 
@@ -114,11 +154,18 @@ const Settings = () => {
     }
 
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${userId}/password`, {
+      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/password`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ oldPassword, newPassword }),
       });
+
+      if (res.status === 401 || res.status === 403) {
+        alert("Session expired. Please log in again.");
+        logout();
+        return;
+      }
+
       const data = await res.json();
       if (!res.ok) return alert(data.error || "Failed to update password");
 
@@ -132,6 +179,7 @@ const Settings = () => {
     }
   };
 
+<<<<<<< HEAD
   // =========================
   // PASSKEY ACTIONS
   // =========================
@@ -201,6 +249,15 @@ const Settings = () => {
       setPasskeyStatus("idle");
     }
   };
+=======
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        Loading settings...
+      </div>
+    );
+  }
+>>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -217,6 +274,7 @@ const Settings = () => {
         {/* Personal Details */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Personal Details</h2>
+<<<<<<< HEAD
           <p>
             <strong>Username:</strong> {user.username}
           </p>
@@ -249,6 +307,55 @@ const Settings = () => {
               </>
             )}
           </p>
+=======
+          <div className="space-y-2">
+            <p><strong>Username:</strong> {user.username}</p>
+            <p><strong>Email:</strong> {user.email}</p>
+            <div>
+              <strong>Phone:</strong>{" "}
+              {editingPhone ? (
+                <div className="mt-2">
+                  <input
+                    type="tel"
+                    value={phoneInput}
+                    onChange={handlePhoneInputChange}
+                    className="input input-bordered w-full max-w-sm"
+                    placeholder="Enter 10-digit phone number"
+                    maxLength={10}
+                  />
+                  <div className="mt-2">
+                    <button
+                      onClick={handlePhoneSave}
+                      className="btn btn-primary"
+                      disabled={phoneInput.length !== 10}
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingPhone(false);
+                        setPhoneInput(user.phone || "");
+                      }}
+                      className="btn btn-outline ml-2"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {user.phone ? formatPhoneNumber(user.phone) : "Not set"}
+                  <button
+                    onClick={() => setEditingPhone(true)}
+                    className="btn btn-sm btn-secondary ml-2"
+                  >
+                    {user.phone ? "Change" : "Add"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+>>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b
         </div>
 
         {/* Biometrics / Passkeys */}
@@ -298,7 +405,7 @@ const Settings = () => {
             />
             <input
               type="password"
-              placeholder="New password"
+              placeholder="New password (min 6 characters)"
               className="input input-bordered w-full"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
@@ -310,7 +417,26 @@ const Settings = () => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
+<<<<<<< HEAD
             <button onClick={handlePasswordUpdate} className="btn btn-primary mt-2">
+=======
+            {newPassword && confirmPassword && (
+              <p
+                style={{
+                  color: newPassword === confirmPassword ? "green" : "red",
+                  fontSize: "0.875rem",
+                }}
+              >
+                {newPassword === confirmPassword
+                  ? "Passwords match ✓"
+                  : "Passwords do not match"}
+              </p>
+            )}
+            <button
+              onClick={handlePasswordUpdate}
+              className="btn btn-primary mt-2"
+            >
+>>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b
               Update Password
             </button>
           </div>
@@ -319,49 +445,58 @@ const Settings = () => {
         {/* Security Settings */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Security Settings</h2>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={twoFactorAuth}
-              onChange={() => setTwoFactorAuth(!twoFactorAuth)}
-              className="checkbox checkbox-primary"
-            />
-            Enable Two-Factor Authentication
-          </label>
-          <label className="flex items-center gap-2 mt-2">
-            <input
-              type="checkbox"
-              checked={loginAlerts}
-              onChange={() => setLoginAlerts(!loginAlerts)}
-              className="checkbox checkbox-primary"
-            />
-            Login Alerts
-          </label>
-          <label className="flex items-center gap-2 mt-2">
-            <input
-              type="checkbox"
-              checked={emailNotifications}
-              onChange={() => setEmailNotifications(!emailNotifications)}
-              className="checkbox checkbox-primary"
-            />
-            Email Notifications
-          </label>
-          <label className="flex items-center gap-2 mt-2">
-            <input
-              type="checkbox"
-              checked={dataEncryption}
-              onChange={() => setDataEncryption(!dataEncryption)}
-              className="checkbox checkbox-primary"
-            />
-            Enable Data Encryption
-          </label>
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={twoFactorAuth}
+                onChange={() => setTwoFactorAuth(!twoFactorAuth)}
+                className="checkbox checkbox-primary"
+              />
+              <span>Enable Two-Factor Authentication</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={loginAlerts}
+                onChange={() => setLoginAlerts(!loginAlerts)}
+                className="checkbox checkbox-primary"
+              />
+              <span>Login Alerts</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={emailNotifications}
+                onChange={() => setEmailNotifications(!emailNotifications)}
+                className="checkbox checkbox-primary"
+              />
+              <span>Email Notifications</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={dataEncryption}
+                onChange={() => setDataEncryption(!dataEncryption)}
+                className="checkbox checkbox-primary"
+              />
+              <span>Enable Data Encryption</span>
+            </label>
+          </div>
+          <p className="text-sm text-gray-500 mt-4">
+            Note: Security preferences are currently for display only. Backend integration coming soon.
+          </p>
         </div>
       </div>
     </div>
   );
 };
 
+<<<<<<< HEAD
 export default Settings;
 
 
 
+=======
+export default Settings;
+>>>>>>> d7c9064fb2d4918e4706c6e530cbc6af3b0ca04b

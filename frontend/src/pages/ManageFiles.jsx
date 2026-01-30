@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Trash2, Download, Share2 } from "lucide-react";
+import { fetchWithAuth, logout } from "../utils/api";
 
 const ManageFiles = () => {
   const navigate = useNavigate();
@@ -12,29 +13,30 @@ const ManageFiles = () => {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Helper function to clean filenames
-const getDisplayName = (filename) => {
-  if (!filename) return '';
-  // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
-  return filename.replace(/^\d+-/, '');
-};
+  const getDisplayName = (filename) => {
+    if (!filename) return '';
+    // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
+    return filename.replace(/^\d+-/, '');
+  };
 
-  // ✅ Get userId safely
+  // ✅ Get userId and token safely
   const userId = localStorage.getItem("userId");
+  const token = localStorage.getItem("token");
 
   // 🔐 Redirect if not logged in
   useEffect(() => {
-    if (!userId) {
+    if (!userId || !token) {
       navigate("/");
     }
-  }, [userId, navigate]);
+  }, [userId, token, navigate]);
 
   // 📡 Fetch dashboard data
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !token) return;
 
     const fetchDashboard = async () => {
       try {
-        const res = await fetch(
+        const res = await fetchWithAuth(
           `http://localhost:3000/api/dashboard/${userId}`,
           { cache: "no-store" } // prevent 304 Not Modified issues
         );
@@ -47,21 +49,35 @@ const getDisplayName = (filename) => {
         setFiles(data.uploads ?? []); // safe fallback
       } catch (err) {
         console.error(err);
-        // optional: only navigate if critical failure
-        alert("Failed to load dashboard. Redirecting to login.");
-        navigate("/");
+        // fetchWithAuth will handle logout if token is invalid
       } finally {
         setLoading(false);
       }
     };
 
     fetchDashboard();
-  }, [userId, navigate]);
+  }, [userId, token, navigate]);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         Loading files...
+      </div>
+    );
+  }
+
+  if (!userData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-xl mb-4">Failed to load files</p>
+          <button 
+            onClick={() => navigate("/")}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Return to Login
+          </button>
+        </div>
       </div>
     );
   }
@@ -86,10 +102,17 @@ const getDisplayName = (filename) => {
       return;
 
     try {
-      const res = await fetch(
+      const res = await fetchWithAuth(
         `http://localhost:3000/api/files/${userId}/${filename}`,
         { method: "DELETE" }
       );
+
+      // Check for authentication errors
+      if (res.status === 401 || res.status === 403) {
+        alert("Session expired. Please log in again.");
+        logout();
+        return;
+      }
 
       const data = await res.json();
 
@@ -100,14 +123,16 @@ const getDisplayName = (filename) => {
         ...prev,
         storageUsed: data.storageUsed ?? prev.storageUsed,
       }));
+      
+      alert("File deleted successfully!");
     } catch (err) {
       console.error(err);
-      alert("Delete failed");
+      alert("Delete failed: " + err.message);
     }
   };
 
   const handleShare = (filename) => {
-    alert(`Share ${getDisplayName(filename)}`);
+    alert(`Share feature coming soon for: ${getDisplayName(filename)}`);
   };
 
   return (
@@ -129,7 +154,13 @@ const getDisplayName = (filename) => {
         <h2 className="text-xl font-semibold mb-2">Storage Usage</h2>
         <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
           <div
-            className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+            className={`h-3 rounded-full transition-all duration-500 ${
+              (usedStorage / totalStorage) * 100 > 90
+                ? "bg-red-500"
+                : (usedStorage / totalStorage) * 100 > 70
+                ? "bg-yellow-500"
+                : "bg-blue-600"
+            }`}
             style={{
               width: `${Math.min((usedStorage / totalStorage) * 100, 100)}%`,
             }}
@@ -154,6 +185,7 @@ const getDisplayName = (filename) => {
             placeholder="Search files..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && setSearchTerm(searchInput)}
             className="input input-bordered flex-1 rounded-l-none"
           />
         </div>
@@ -161,7 +193,9 @@ const getDisplayName = (filename) => {
 
       {/* Files Grid */}
       {filteredFiles.length === 0 ? (
-        <p className="text-gray-600 text-center">No files uploaded yet.</p>
+        <p className="text-gray-600 text-center">
+          {searchTerm ? "No files match your search." : "No files uploaded yet."}
+        </p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
           {filteredFiles.map((file, index) => (
@@ -170,7 +204,9 @@ const getDisplayName = (filename) => {
               className="bg-white rounded-lg shadow p-4 flex flex-col justify-between"
             >
               <div>
-                <h3 className="font-semibold text-gray-800">{getDisplayName(file.filename)}</h3>
+                <h3 className="font-semibold text-gray-800 break-words">
+                  {getDisplayName(file.filename)}
+                </h3>
                 <p className="text-sm text-gray-500">
                   {(file.size ?? 0).toFixed(2)} MB
                 </p>
@@ -186,6 +222,7 @@ const getDisplayName = (filename) => {
                 <button
                   onClick={() => handleDownload(file.filename)}
                   className="btn btn-sm btn-outline flex items-center gap-1"
+                  title="Download file"
                 >
                   <Download className="w-4 h-4" /> Download
                 </button>
@@ -193,6 +230,7 @@ const getDisplayName = (filename) => {
                 <button
                   onClick={() => handleShare(file.filename)}
                   className="btn btn-sm btn-outline flex items-center gap-1"
+                  title="Share file"
                 >
                   <Share2 className="w-4 h-4" /> Share
                 </button>
@@ -200,6 +238,7 @@ const getDisplayName = (filename) => {
                 <button
                   onClick={() => handleDelete(file.filename)}
                   className="btn btn-sm btn-outline btn-error flex items-center gap-1"
+                  title="Delete file"
                 >
                   <Trash2 className="w-4 h-4" /> Delete
                 </button>
