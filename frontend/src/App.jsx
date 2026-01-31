@@ -6,6 +6,7 @@ import Settings from "./pages/Settings";
 import Manage from "./pages/ManageFiles";
 import ResetPassword from "./pages/ResetPassword";
 import NewPassword from "./pages/NewPassword";
+import SharedFile from "./pages/SharedFile";
 import { useInactivityTimer } from "./hooks/useInactivityTimer";
 
 function App() {
@@ -19,7 +20,7 @@ function App() {
       <Route path="/manage" element={<Manage />} />
       <Route path="/resetpassword" element={<ResetPassword />} />
       <Route path="/newpassword/:token" element={<NewPassword />} />
-      
+      <Route path="/shared/:linkId" element={<SharedFile />} />
     </Routes>
   );
 }

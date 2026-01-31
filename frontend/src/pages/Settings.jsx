@@ -60,6 +60,10 @@ const Settings = () => {
 
         setPhoneInput(data.phone || "");
         setTwoFactorAuth(data.twoFactorEnabled || false);
+        
+        // Set device auth settings
+        setDeviceAuthEnabled(data.deviceAuthEnabled || false);
+        setTrustedDevices(data.trustedDevices || []);
       } catch (err) {
         console.error(err);
         // fetchWithAuth will handle logout if token is invalid
@@ -471,6 +475,63 @@ const Settings = () => {
           <p className="text-sm text-gray-500 mt-4">
             Note: Security preferences are currently for display only. Backend integration coming soon.
           </p>
+        </div>
+
+        {/* Device Authentication */}
+        <div className="bg-white rounded-lg shadow p-6 mb-8">
+          <h2 className="text-xl font-semibold mb-4">Device Authentication</h2>
+          
+          <label className="flex items-center gap-2 cursor-pointer mb-4">
+            <input
+              type="checkbox"
+              checked={deviceAuthEnabled}
+              onChange={handleDeviceAuthToggle}
+              className="checkbox checkbox-primary"
+            />
+            <span className="font-medium">Enable Device Authentication</span>
+          </label>
+          
+          <p className="text-sm text-gray-600 mb-4">
+            When enabled, only trusted devices can access your account. You'll be prompted to trust new devices on login.
+          </p>
+
+          {deviceAuthEnabled && (
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold mb-3">Trusted Devices</h3>
+              
+              {trustedDevices && trustedDevices.length > 0 ? (
+                <div className="space-y-3">
+                  {trustedDevices.map((device, index) => (
+                    <div
+                      key={index}
+                      className="flex justify-between items-center border border-gray-200 rounded-lg p-4"
+                    >
+                      <div>
+                        <p className="font-medium">{device.deviceName || "Unknown Device"}</p>
+                        <p className="text-sm text-gray-500">
+                          Added: {new Date(device.trustedAt).toLocaleDateString()}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Last used: {new Date(device.lastUsed).toLocaleDateString()}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          IP: {device.ipAddress || "Unknown"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveDevice(device.deviceToken)}
+                        className="btn btn-sm btn-outline btn-error"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500">No trusted devices yet. Log in from a new device to add one.</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

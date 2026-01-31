@@ -1,36 +1,68 @@
 import mongoose from "mongoose";
 
-const userSchema = new mongoose.Schema(
-  {
-    username: { type: String, required: true, unique: true },
-    email: { type: String, required: true, unique: true },
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  password_hash: { type: String, required: true },
+  phone: { type: String, default: "" },
+  storageUsed: { type: Number, default: 0 },
+  storageLimit: { type: Number, default: 1000 },
+  twoFactorEnabled: { type: Boolean, default: false },
+  accountStatus: { type: String, default: "Active" },
+  
+  uploads: [
+    {
+      filename: String,
+      size: Number,
+      uploadedAt: { type: Date, default: Date.now },
+    },
+  ],
+  
+  devices: [
+    {
+      device: String,
+      deviceName: String,
+      location: String,
+      lastActive: { type: Date, default: Date.now },
+    },
+  ],
+  
+  trustedDevices: [
+    {
+      deviceToken: { type: String, required: true, unique: true },
+      deviceName: String,
+      userAgent: String,
+      ipAddress: String,
+      trustedAt: { type: Date, default: Date.now },
+      lastUsed: { type: Date, default: Date.now },
+    },
+  ],
+  
+  deviceAuthEnabled: { type: Boolean, default: false },
+  
+  // Password reset
+  resetToken: String,
+  resetTokenExpires: Date,
+  
+  // NEW: Device verification
+  deviceVerificationCode: String,
+  deviceVerificationExpires: Date,
+  pendingDeviceToken: String, // Temporarily store device info during verification
+  pendingDeviceName: String,
+  pendingDeviceUserAgent: String,
+  
+  createdAt: { type: Date, default: Date.now },
 
-    // IMPORTANT: keep your existing name
-    password_hash: { type: String, required: true },
-
-    resetToken: String,
-    resetTokenExpires: Date,
-
-    phone: { type: String, default: "" },
-    storageUsed: { type: Number, default: 0 },
-    storageLimit: { type: Number, default: 1024 },
-    plan: { type: String, default: "Free" },
-
-    uploads: [
+  sharedLinks: [
       {
+        linkId: String,
         filename: String,
-        size: Number,
-        uploadedAt: { type: Date, default: Date.now },
+        password: String,
+        expiresAt: Date,
+        createdAt: { type: Date, default: Date.now },
       },
     ],
 
-    devices: [
-      {
-        device: String,
-        location: String,
-        lastActive: { type: Date, default: Date.now },
-      },
-    ],
 
     accountStatus: { type: String, default: "Active" },
     twoFactorEnabled: { type: Boolean, default: false },

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./LoginPage.css";
+import { getOrCreateDeviceToken, getDeviceInfo } from "../utils/deviceFingerprint";
 
 import user_icon from "../Components/Assets/person.png";
 import email_icon from "../Components/Assets/email.png";
@@ -12,6 +13,11 @@ const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  
+  // Device verification states
+  const [showVerification, setShowVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [loginData, setLoginData] = useState(null);
 
   const navigate = useNavigate();
 
@@ -54,7 +60,46 @@ const LoginPage = () => {
 
       // ✅ LOGIN SUCCESS
       if (action === "Login") {
-        // Store the JWT token
+        // Get device token
+        const deviceToken = getOrCreateDeviceToken();
+        const deviceInfo = getDeviceInfo();
+        
+        // Check if device is trusted
+        const deviceCheckRes = await fetch("http://localhost:3000/check-device", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, deviceToken }),
+        });
+        
+        const deviceCheckData = await deviceCheckRes.json();
+        
+        // If device auth is enabled and device is not trusted
+        if (deviceCheckData.deviceAuthEnabled && !deviceCheckData.trusted) {
+          // Send verification code to email
+          const verifyRes = await fetch("http://localhost:3000/send-device-verification", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              deviceToken,
+              deviceName: deviceInfo.deviceName,
+              userAgent: deviceInfo.userAgent,
+            }),
+          });
+
+          if (verifyRes.ok) {
+            // Store login data and show verification input
+            setLoginData(data);
+            setShowVerification(true);
+            alert("A verification code has been sent to your email. Please check your inbox.");
+            return;
+          } else {
+            alert("Failed to send verification code. Please try again.");
+            return;
+          }
+        }
+        
+        // Device is trusted or auth not enabled - proceed with login
         localStorage.setItem("token", data.token);
         localStorage.setItem("userId", data.userId);
         localStorage.setItem("username", data.username);
@@ -77,6 +122,91 @@ const LoginPage = () => {
     }
   };
 
+  const handleVerifyCode = async () => {
+    if (!verificationCode || verificationCode.length !== 6) {
+      alert("Please enter a valid 6-digit code");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:3000/verify-device-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          code: verificationCode,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || "Verification failed");
+        return;
+      }
+
+      // Verification successful - complete login
+      localStorage.setItem("token", loginData.token);
+      localStorage.setItem("userId", loginData.userId);
+      localStorage.setItem("username", loginData.username);
+      
+      alert("Device verified successfully!");
+      navigate("/home");
+    } catch (err) {
+      console.error(err);
+      alert("Server error during verification");
+    }
+  };
+
+  // If showing verification screen
+  if (showVerification) {
+    return (
+      <div className="title">
+        <h1>GuardFile</h1>
+        <div className="container">
+          <div className="header">
+            <div className="text">Verify Device</div>
+            <div className="underline"></div>
+          </div>
+
+          <div className="inputs">
+            <p style={{ textAlign: "center", marginBottom: "20px", color: "#666" }}>
+              Enter the 6-digit code sent to <strong>{email}</strong>
+            </p>
+            
+            <div className="input">
+              <img src={email_icon} width={25} height={25} alt="Code" />
+              <input
+                type="text"
+                placeholder="Enter 6-digit code"
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength={6}
+              />
+            </div>
+          </div>
+
+          <div className="submit-container">
+            <div className="submit" onClick={handleVerifyCode}>
+              Verify Code
+            </div>
+            <div
+              className="submit gray"
+              onClick={() => {
+                setShowVerification(false);
+                setVerificationCode("");
+                setLoginData(null);
+              }}
+            >
+              Cancel
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular login/signup screen
   return (
     <div className="title">
       <h1>GuardFile</h1>

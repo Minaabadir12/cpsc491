@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Trash2, Download, Share2 } from "lucide-react";
+import { Trash2, Download, Share2, X, Copy, Check } from "lucide-react";
 import { fetchWithAuth, logout } from "../utils/api";
 
 const ManageFiles = () => {
@@ -11,6 +11,15 @@ const ManageFiles = () => {
   const [loading, setLoading] = useState(true);
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Share modal state
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareFilename, setShareFilename] = useState("");
+  const [shareExpiry, setShareExpiry] = useState("24h");
+  const [sharePassword, setSharePassword] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Helper function to clean filenames
   const getDisplayName = (filename) => {
@@ -132,7 +141,52 @@ const ManageFiles = () => {
   };
 
   const handleShare = (filename) => {
-    alert(`Share feature coming soon for: ${getDisplayName(filename)}`);
+    setShareFilename(filename);
+    setShareExpiry("24h");
+    setSharePassword("");
+    setGeneratedLink("");
+    setCopied(false);
+    setIsShareModalOpen(true);
+  };
+
+  const generateShareLink = async () => {
+    setIsGenerating(true);
+    try {
+      const res = await fetchWithAuth(
+        `http://localhost:3000/api/share/${userId}/${shareFilename}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expiresIn: shareExpiry,
+            password: sharePassword || undefined,
+          }),
+        }
+      );
+
+      if (!res.ok) throw new Error("Failed to create share link");
+
+      const data = await res.json();
+      const link = `${window.location.origin}/shared/${data.linkId}`;
+      setGeneratedLink(link);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate share link: " + err.message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(generatedLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const closeShareModal = () => {
+    setIsShareModalOpen(false);
+    setShareFilename("");
+    setGeneratedLink("");
   };
 
   return (
@@ -245,6 +299,93 @@ const ManageFiles = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Share Modal */}
+      {isShareModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Share File</h2>
+              <button onClick={closeShareModal} className="btn btn-sm btn-ghost">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-gray-600 mb-4">
+              Sharing: <span className="font-medium">{getDisplayName(shareFilename)}</span>
+            </p>
+
+            {!generatedLink ? (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-1">Link expires in</label>
+                  <select
+                    value={shareExpiry}
+                    onChange={(e) => setShareExpiry(e.target.value)}
+                    className="select select-bordered w-full"
+                  >
+                    <option value="24h">24 hours</option>
+                    <option value="7d">7 days</option>
+                    <option value="30d">30 days</option>
+                  </select>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium mb-1">
+                    Password (optional)
+                  </label>
+                  <input
+                    type="password"
+                    value={sharePassword}
+                    onChange={(e) => setSharePassword(e.target.value)}
+                    placeholder="Leave empty for no password"
+                    className="input input-bordered w-full"
+                  />
+                </div>
+
+                <button
+                  onClick={generateShareLink}
+                  disabled={isGenerating}
+                  className="btn btn-primary w-full"
+                >
+                  {isGenerating ? "Generating..." : "Generate Link"}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-1">Share Link</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={generatedLink}
+                      readOnly
+                      className="input input-bordered flex-1 text-sm"
+                    />
+                    <button
+                      onClick={copyToClipboard}
+                      className="btn btn-primary"
+                      title="Copy to clipboard"
+                    >
+                      {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {sharePassword && (
+                  <p className="text-sm text-gray-500 mb-4">
+                    This link is password protected. Share the password separately.
+                  </p>
+                )}
+
+                <button onClick={closeShareModal} className="btn btn-outline w-full">
+                  Done
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
