@@ -1,3 +1,4 @@
+import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, logout } from "../utils/api";
@@ -24,15 +25,17 @@ const Settings = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // Notification/security toggles
+  // Notification/security toggles (display-only for now)
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [loginAlerts, setLoginAlerts] = useState(true);
   const [twoFactorAuth, setTwoFactorAuth] = useState(true);
   const [dataEncryption, setDataEncryption] = useState(true);
 
-  // Device authentication
-  const [deviceAuthEnabled, setDeviceAuthEnabled] = useState(false);
-  const [trustedDevices, setTrustedDevices] = useState([]);
+  // =========================
+  // PASSKEYS (WebAuthn)
+  // =========================
+  const [passkeyStatus, setPasskeyStatus] = useState("idle"); // idle | working
+  const [hasPasskey, setHasPasskey] = useState(false);
 
   // Load user data from backend
   useEffect(() => {
@@ -43,14 +46,18 @@ const Settings = () => {
 
     const fetchUser = async () => {
       try {
-        const res = await fetchWithAuth(`http://localhost:3000/api/dashboard/${userId}`);
+        const res = await fetchWithAuth(
+          `http://localhost:3000/api/dashboard/${userId}`
+        );
         if (!res.ok) throw new Error("Failed to fetch user data");
+
         const data = await res.json();
         setUser({
           username: data.username,
           email: data.email,
           phone: data.phone || "",
         });
+
         setPhoneInput(data.phone || "");
         setTwoFactorAuth(data.twoFactorEnabled || false);
         
@@ -71,40 +78,60 @@ const Settings = () => {
   // Handle phone number input - only allow numbers
   const handlePhoneInputChange = (e) => {
     const value = e.target.value;
-    // Only allow digits, limit to 10 characters
-    const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+    const digitsOnly = value.replace(/\D/g, "").slice(0, 10);
     setPhoneInput(digitsOnly);
   };
 
-  // Format phone number for display (optional: formats as (123) 456-7890)
+  // Format phone number for display (optional: (123) 456-7890)
   const formatPhoneNumber = (phone) => {
     if (!phone) return "";
-    const cleaned = phone.replace(/\D/g, '');
+    const cleaned = phone.replace(/\D/g, "");
     if (cleaned.length === 10) {
-      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(
+        6
+      )}`;
     }
     return phone;
   };
 
+  // Check if user already has a passkey
+  useEffect(() => {
+    if (!userId) return;
+
+    const checkPasskey = async () => {
+      try {
+        const res = await fetch(`http://localhost:3000/webauthn/status/${userId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setHasPasskey(!!data.hasPasskey);
+      } catch (err) {
+        // ignore silently
+      }
+    };
+
+    checkPasskey();
+  }, [userId]);
+
   // Update phone number
   const handlePhoneSave = async () => {
-    // Validate phone number
     if (!phoneInput.trim()) {
       return alert("Phone number cannot be empty");
     }
-    
-    const digitsOnly = phoneInput.replace(/\D/g, '');
-    
+
+    const digitsOnly = phoneInput.replace(/\D/g, "");
     if (digitsOnly.length !== 10) {
       return alert("Phone number must be exactly 10 digits");
     }
 
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/phone`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: digitsOnly }),
-      });
+      const res = await fetchWithAuth(
+        `http://localhost:3000/api/users/${userId}/phone`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: digitsOnly }),
+        }
+      );
 
       if (res.status === 401 || res.status === 403) {
         alert("Session expired. Please log in again.");
@@ -137,11 +164,14 @@ const Settings = () => {
     }
 
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/password`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ oldPassword, newPassword }),
-      });
+      const res = await fetchWithAuth(
+        `http://localhost:3000/api/users/${userId}/password`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ oldPassword, newPassword }),
+        }
+      );
 
       if (res.status === 401 || res.status === 403) {
         alert("Session expired. Please log in again.");
@@ -162,63 +192,79 @@ const Settings = () => {
     }
   };
 
-  // Toggle device authentication
-  const handleDeviceAuthToggle = async () => {
-    const newValue = !deviceAuthEnabled;
-    
+  // =========================
+  // PASSKEY ACTIONS
+  // =========================
+  const handleCreatePasskey = async () => {
+    if (!userId) return alert("Please log in again");
+
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/device-auth`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: newValue }),
-      });
+      setPasskeyStatus("working");
 
-      if (res.status === 401 || res.status === 403) {
-        alert("Session expired. Please log in again.");
-        logout();
-        return;
-      }
+      const optRes = await fetch(
+        "http://localhost:3000/webauthn/register/options",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId }),
+        }
+      );
+      const options = await optRes.json();
+      if (!optRes.ok) throw new Error(options.error || "Failed to start passkey");
 
-      const data = await res.json();
-      if (!res.ok) return alert(data.error || "Failed to update device auth");
+      const attResp = await startRegistration(options);
 
-      setDeviceAuthEnabled(newValue);
-      
-      if (newValue) {
-        alert("Device authentication enabled! Only trusted devices can now access your account.");
-      } else {
-        alert("Device authentication disabled. All devices can access your account.");
-      }
+      const verRes = await fetch(
+        "http://localhost:3000/webauthn/register/verify",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, attResp }),
+        }
+      );
+      const result = await verRes.json();
+      if (!verRes.ok) throw new Error(result.error || "Passkey verification failed");
+
+      setHasPasskey(true);
+      alert("Passkey created successfully!");
     } catch (err) {
       console.error(err);
-      alert("Server error while updating device auth");
+      alert(err.message || "Passkey setup failed");
+    } finally {
+      setPasskeyStatus("idle");
     }
   };
 
-  // Remove a trusted device
-  const handleRemoveDevice = async (deviceToken) => {
-    if (!window.confirm("Are you sure you want to remove this device?")) return;
+  const handleLoginWithPasskey = async () => {
+    if (!userId) return alert("Please log in again");
 
     try {
-      const res = await fetchWithAuth(
-        `http://localhost:3000/api/users/${userId}/trusted-devices/${deviceToken}`,
-        { method: "DELETE" }
-      );
+      setPasskeyStatus("working");
 
-      if (res.status === 401 || res.status === 403) {
-        alert("Session expired. Please log in again.");
-        logout();
-        return;
-      }
+      const optRes = await fetch("http://localhost:3000/webauthn/login/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const options = await optRes.json();
+      if (!optRes.ok) throw new Error(options.error || "Failed to start passkey login");
 
-      const data = await res.json();
-      if (!res.ok) return alert(data.error || "Failed to remove device");
+      const asseResp = await startAuthentication(options);
 
-      setTrustedDevices(data.trustedDevices);
-      alert("Device removed successfully!");
+      const verRes = await fetch("http://localhost:3000/webauthn/login/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, asseResp }),
+      });
+      const result = await verRes.json();
+      if (!verRes.ok) throw new Error(result.error || "Passkey login failed");
+
+      alert("Passkey verified successfully on this device!");
     } catch (err) {
       console.error(err);
-      alert("Server error while removing device");
+      alert(err.message || "Passkey verification failed");
+    } finally {
+      setPasskeyStatus("idle");
     }
   };
 
@@ -248,9 +294,15 @@ const Settings = () => {
         {/* Personal Details */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Personal Details</h2>
+
           <div className="space-y-2">
-            <p><strong>Username:</strong> {user.username}</p>
-            <p><strong>Email:</strong> {user.email}</p>
+            <p>
+              <strong>Username:</strong> {user.username}
+            </p>
+            <p>
+              <strong>Email:</strong> {user.email}
+            </p>
+
             <div>
               <strong>Phone:</strong>{" "}
               {editingPhone ? (
@@ -297,6 +349,39 @@ const Settings = () => {
           </div>
         </div>
 
+        {/* Biometrics / Passkeys */}
+        <div className="bg-white rounded-lg shadow p-6 mb-8">
+          <h2 className="text-xl font-semibold mb-4">Biometrics</h2>
+
+          <div className="flex flex-wrap gap-3 items-start">
+            <button
+              onClick={handleCreatePasskey}
+              className="btn btn-primary"
+              disabled={passkeyStatus === "working"}
+            >
+              {passkeyStatus === "working"
+                ? "Working..."
+                : hasPasskey
+                ? "Add Another Passkey"
+                : "Create Passkey"}
+            </button>
+
+            <div>
+              <button
+                onClick={handleLoginWithPasskey}
+                className="btn btn-outline btn-primary"
+                disabled={passkeyStatus === "working"}
+              >
+                {passkeyStatus === "working"
+                  ? "Working..."
+                  : "Verify passkey on this device"}
+              </button>
+
+              <p className="text-sm text-gray-500 mt-2"></p>
+            </div>
+          </div>
+        </div>
+
         {/* Change Password */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Change Password</h2>
@@ -322,6 +407,7 @@ const Settings = () => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
+
             {newPassword && confirmPassword && (
               <p
                 style={{
@@ -334,10 +420,8 @@ const Settings = () => {
                   : "Passwords do not match"}
               </p>
             )}
-            <button
-              onClick={handlePasswordUpdate}
-              className="btn btn-primary mt-2"
-            >
+
+            <button onClick={handlePasswordUpdate} className="btn btn-primary mt-2">
               Update Password
             </button>
           </div>
@@ -356,6 +440,7 @@ const Settings = () => {
               />
               <span>Enable Two-Factor Authentication</span>
             </label>
+
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -365,6 +450,7 @@ const Settings = () => {
               />
               <span>Login Alerts</span>
             </label>
+
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -374,6 +460,7 @@ const Settings = () => {
               />
               <span>Email Notifications</span>
             </label>
+
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -384,6 +471,7 @@ const Settings = () => {
               <span>Enable Data Encryption</span>
             </label>
           </div>
+
           <p className="text-sm text-gray-500 mt-4">
             Note: Security preferences are currently for display only. Backend integration coming soon.
           </p>
@@ -451,3 +539,4 @@ const Settings = () => {
 };
 
 export default Settings;
+

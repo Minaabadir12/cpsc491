@@ -64,10 +64,26 @@ const userSchema = new mongoose.Schema({
     ],
 
 
+    accountStatus: { type: String, default: "Active" },
+    twoFactorEnabled: { type: Boolean, default: false },
 
+    // =========================
+    // PASSKEYS / BIOMETRICS (WebAuthn)
+    // =========================
+    currentChallenge: String,
 
-},
+    webauthnCredentials: [
+      {
+        credentialID: String,     // base64url string
+        publicKey: String,        // base64url string
+        counter: { type: Number, default: 0 },
+        transports: [String],
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+  },
   { timestamps: true }
 );
 
 export default mongoose.model("User", userSchema);
+
