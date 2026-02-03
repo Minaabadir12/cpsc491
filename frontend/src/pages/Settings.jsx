@@ -228,6 +228,44 @@ const Settings = () => {
   };
 
   // =========================
+  // LOGIN WITH PASSKEY
+  // =========================
+  const handleLoginWithPasskey = async () => {
+    if (!userId) return alert("Please log in again");
+
+    try {
+      setPasskeyStatus("working");
+
+      const optRes = await fetch("http://localhost:3000/webauthn/login/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+
+      const options = await optRes.json();
+      if (!optRes.ok) throw new Error(options.error || "Failed to start passkey login");
+
+      const asseResp = await startAuthentication(options);
+
+      const verRes = await fetch("http://localhost:3000/webauthn/login/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, asseResp }),
+      });
+
+      const result = await verRes.json();
+      if (!verRes.ok) throw new Error(result.error || "Passkey verification failed");
+
+      alert("Passkey verified successfully!");
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Passkey verification failed");
+    } finally {
+      setPasskeyStatus("idle");
+    }
+  };
+
+  // =========================
   // DELETE PASSKEYS (WITH VERIFICATION)
   // =========================
   const handleDeletePasskeys = async () => {
@@ -393,6 +431,14 @@ const Settings = () => {
             </button>
 
             <button
+              onClick={handleLoginWithPasskey}
+              className="btn btn-outline btn-primary"
+              disabled={passkeyStatus === "working" || !hasPasskey}
+            >
+              {passkeyStatus === "working" ? "Working..." : "Verify Passkey"}
+            </button>
+
+            <button
               onClick={handleDeletePasskeys}
               className="btn btn-error"
               disabled={passkeyStatus === "working" || !hasPasskey}
@@ -537,5 +583,3 @@ const Settings = () => {
 };
 
 export default Settings;
-
-
