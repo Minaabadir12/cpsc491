@@ -73,9 +73,7 @@ const Settings = () => {
 
     const fetchUser = async () => {
       try {
-        const res = await fetchWithAuth(
-          `http://localhost:3000/api/dashboard/${userId}`
-        );
+        const res = await fetchWithAuth(`http://localhost:3000/api/dashboard/${userId}`);
         if (!res.ok) throw new Error("Failed to fetch user data");
 
         const data = await res.json();
@@ -123,14 +121,11 @@ const Settings = () => {
     if (digitsOnly.length !== 10) return alert("Phone number must be 10 digits");
 
     try {
-      const res = await fetchWithAuth(
-        `http://localhost:3000/api/users/${userId}/phone`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone: digitsOnly }),
-        }
-      );
+      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/phone`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: digitsOnly }),
+      });
 
       if (res.status === 401 || res.status === 403) {
         alert("Session expired. Please log in again.");
@@ -159,14 +154,11 @@ const Settings = () => {
     if (newPassword.length < 6) return alert("Password must be at least 6 characters");
 
     try {
-      const res = await fetchWithAuth(
-        `http://localhost:3000/api/users/${userId}/password`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ oldPassword, newPassword }),
-        }
-      );
+      const res = await fetchWithAuth(`http://localhost:3000/api/users/${userId}/password`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldPassword, newPassword }),
+      });
 
       if (res.status === 401 || res.status === 403) {
         alert("Session expired. Please log in again.");
@@ -188,7 +180,7 @@ const Settings = () => {
   };
 
   // =========================
-  // PASSKEY HANDLERS
+  // PASSKEY STATUS
   // =========================
   useEffect(() => {
     if (!userId) return;
@@ -207,6 +199,9 @@ const Settings = () => {
     checkPasskey();
   }, [userId]);
 
+  // =========================
+  // PASSKEY CREATE
+  // =========================
   const handleCreatePasskey = async () => {
     if (!userId) return alert("Please log in again");
 
@@ -241,34 +236,53 @@ const Settings = () => {
     }
   };
 
-  const handleLoginWithPasskey = async () => {
+  // =========================
+  // ✅ PASSKEY DELETE (VERIFY THEN DELETE)
+  // Uses your backend:
+  // 1) POST /webauthn/delete/options
+  // 2) startAuthentication(options)
+  // 3) POST /webauthn/delete/verify  (this deletes after verification)
+  // =========================
+  const handleDeletePasskey = async () => {
     if (!userId) return alert("Please log in again");
+    if (!hasPasskey) return alert("No passkey found to delete.");
+
+    const confirmDelete = window.confirm(
+      "Delete your passkey? You will be asked to verify (Face ID / Windows Hello) first."
+    );
+    if (!confirmDelete) return;
 
     try {
       setPasskeyStatus("working");
 
-      const optRes = await fetch("http://localhost:3000/webauthn/login/options", {
+      // 1) get delete-auth options
+      const optRes = await fetch("http://localhost:3000/webauthn/delete/options", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId }),
       });
-      const options = await optRes.json();
-      if (!optRes.ok) throw new Error(options.error || "Failed to start passkey login");
 
+      const options = await optRes.json();
+      if (!optRes.ok) throw new Error(options.error || "Failed to start delete verification");
+
+      // 2) prompt biometric/passkey auth
       const asseResp = await startAuthentication(options);
 
-      const verRes = await fetch("http://localhost:3000/webauthn/login/verify", {
+      // 3) verify + delete on server
+      const verRes = await fetch("http://localhost:3000/webauthn/delete/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, asseResp }),
       });
-      const result = await verRes.json();
-      if (!verRes.ok) throw new Error(result.error || "Passkey login failed");
 
-      alert("Passkey verified successfully on this device!");
+      const result = await verRes.json();
+      if (!verRes.ok) throw new Error(result.error || "Delete verification failed");
+
+      setHasPasskey(false);
+      alert("Passkey deleted successfully!");
     } catch (err) {
       console.error(err);
-      alert(err.message || "Passkey verification failed");
+      alert(err.message || "Delete passkey failed");
     } finally {
       setPasskeyStatus("idle");
     }
@@ -313,10 +327,9 @@ const Settings = () => {
     try {
       setTwoFactorStatus("loading");
 
-      const res = await fetchWithAuth(
-        `http://localhost:3000/api/2fa/setup/${userId}`,
-        { method: "POST" }
-      );
+      const res = await fetchWithAuth(`http://localhost:3000/api/2fa/setup/${userId}`, {
+        method: "POST",
+      });
 
       if (!res.ok) {
         const data = await res.json();
@@ -344,17 +357,14 @@ const Settings = () => {
     try {
       setTwoFactorStatus("loading");
 
-      const res = await fetchWithAuth(
-        `http://localhost:3000/api/2fa/verify-setup/${userId}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            secret: twoFactorSecret,
-            token: twoFactorVerifyCode,
-          }),
-        }
-      );
+      const res = await fetchWithAuth(`http://localhost:3000/api/2fa/verify-setup/${userId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: twoFactorSecret,
+          token: twoFactorVerifyCode,
+        }),
+      });
 
       if (!res.ok) {
         const data = await res.json();
@@ -384,14 +394,11 @@ const Settings = () => {
     try {
       setTwoFactorStatus("loading");
 
-      const res = await fetchWithAuth(
-        `http://localhost:3000/api/2fa/disable/${userId}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: disable2FAPassword }),
-        }
-      );
+      const res = await fetchWithAuth(`http://localhost:3000/api/2fa/disable/${userId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: disable2FAPassword }),
+      });
 
       if (!res.ok) {
         const data = await res.json();
@@ -456,7 +463,13 @@ const Settings = () => {
                   <button onClick={handlePhoneSave} className="btn btn-primary" disabled={phoneInput.length !== 10}>
                     Save
                   </button>
-                  <button onClick={() => { setEditingPhone(false); setPhoneInput(user.phone || ""); }} className="btn btn-outline ml-2">
+                  <button
+                    onClick={() => {
+                      setEditingPhone(false);
+                      setPhoneInput(user.phone || "");
+                    }}
+                    className="btn btn-outline ml-2"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -477,26 +490,47 @@ const Settings = () => {
           <h2 className="text-xl font-semibold mb-4">Biometrics / Passkeys</h2>
           <div className="flex flex-wrap gap-3 items-start">
             <button onClick={handleCreatePasskey} className="btn btn-primary" disabled={passkeyStatus === "working"}>
-              {passkeyStatus === "working"
-                ? "Working..."
-                : hasPasskey
-                ? "Add Another Passkey"
-                : "Create Passkey"}
+              {passkeyStatus === "working" ? "Working..." : hasPasskey ? "Add Another Passkey" : "Create Passkey"}
             </button>
 
-            <button onClick={handleLoginWithPasskey} className="btn btn-outline btn-primary" disabled={passkeyStatus === "working"}>
-              {passkeyStatus === "working" ? "Working..." : "Verify passkey on this device"}
+            <button
+              onClick={handleDeletePasskey}
+              className="btn btn-outline btn-error"
+              disabled={passkeyStatus === "working" || !hasPasskey}
+            >
+              {passkeyStatus === "working" ? "Working..." : "Delete Passkey"}
             </button>
           </div>
+
+          <p className="text-sm text-gray-500 mt-3">
+          </p>
         </div>
 
         {/* PASSWORD CHANGE */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Change Password</h2>
           <div className="flex flex-col gap-3 max-w-md">
-            <input type="password" placeholder="Current password" className="input input-bordered w-full" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
-            <input type="password" placeholder="New password (min 6 chars)" className="input input-bordered w-full" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-            <input type="password" placeholder="Confirm new password" className="input input-bordered w-full" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+            <input
+              type="password"
+              placeholder="Current password"
+              className="input input-bordered w-full"
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="New password (min 6 chars)"
+              className="input input-bordered w-full"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="Confirm new password"
+              className="input input-bordered w-full"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
 
             {newPassword && confirmPassword && (
               <p style={{ color: newPassword === confirmPassword ? "green" : "red", fontSize: "0.875rem" }}>
@@ -504,7 +538,9 @@ const Settings = () => {
               </p>
             )}
 
-            <button onClick={handlePasswordUpdate} className="btn btn-primary mt-2">Update Password</button>
+            <button onClick={handlePasswordUpdate} className="btn btn-primary mt-2">
+              Update Password
+            </button>
           </div>
         </div>
 
@@ -580,9 +616,7 @@ const Settings = () => {
                 <input
                   type="text"
                   value={twoFactorVerifyCode}
-                  onChange={(e) =>
-                    setTwoFactorVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                  }
+                  onChange={(e) => setTwoFactorVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   placeholder="Enter 6-digit code"
                   className="input input-bordered w-full max-w-xs"
                   maxLength={6}
@@ -688,3 +722,5 @@ const Settings = () => {
 };
 
 export default Settings;
+
+
