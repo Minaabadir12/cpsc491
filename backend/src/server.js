@@ -36,6 +36,37 @@ app.use(express.json());
 app.use(webauthnRoutes);
 app.use(authRoutes);
 
+// ------------------- HELPER FUNCTIONS -------------------
+// Activity logging helper
+async function logActivity(userId, action, filename, metadata = {}) {
+  try {
+    const user = await User.findById(userId);
+    if (!user) return;
+
+    // Initialize recentActivity array if it doesn't exist
+    if (!user.recentActivity) {
+      user.recentActivity = [];
+    }
+
+    // Add new activity
+    user.recentActivity.unshift({
+      action,
+      filename,
+      timestamp: new Date(),
+      ...metadata
+    });
+
+    // Keep only the last 50 activities
+    if (user.recentActivity.length > 50) {
+      user.recentActivity = user.recentActivity.slice(0, 50);
+    }
+
+    await user.save();
+  } catch (err) {
+    console.error("Failed to log activity:", err);
+  }
+}
+
 // ------------------- MIDDLEWARE -------------------
 // JWT Authentication Middleware
 function authenticateToken(req, res, next) {
@@ -138,6 +169,12 @@ app.get("/api/dashboard/:userId", authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(userId).select("-password_hash");
     if (!user) return res.status(404).json({ message: "User not found" });
+    
+    // Initialize recentActivity if it doesn't exist
+    if (!user.recentActivity) {
+      user.recentActivity = [];
+    }
+    
     res.json(user.toObject());
   } catch (err) {
     console.error(err);
@@ -214,14 +251,22 @@ app.post("/api/upload/:userId", authenticateToken, upload.array("files"), async 
     if (!user) return res.status(404).json({ error: "User not found" });
 
     let totalAddedSize = 0;
+    const uploadedFiles = [];
+    
     req.files.forEach(file => {
       const fileSizeMB = file.size / 1024 / 1024;
       user.uploads.push({ filename: file.filename, size: fileSizeMB, uploadedAt: new Date() });
       totalAddedSize += fileSizeMB;
+      uploadedFiles.push(file.filename);
     });
 
     user.storageUsed += totalAddedSize;
     await user.save();
+
+    // Log activity for each uploaded file
+    for (const filename of uploadedFiles) {
+      await logActivity(userId, 'upload', filename);
+    }
 
     res.json({ message: "Files uploaded successfully", storageUsed: user.storageUsed, uploads: user.uploads });
   } catch (err) {
@@ -251,6 +296,9 @@ app.delete("/api/files/:userId/:filename", authenticateToken, async (req, res) =
     user.uploads = user.uploads.filter(f => f.filename !== filename);
     user.storageUsed -= file.size;
     await user.save();
+
+    // Log delete activity
+    await logActivity(userId, 'delete', filename);
 
     res.json({ message: "File deleted", storageUsed: user.storageUsed, uploads: user.uploads });
   } catch (err) {
@@ -328,6 +376,13 @@ app.post("/trust-device", async (req, res) => {
     
     await user.save();
     
+    // Log activity for adding trusted device
+    await logActivity(user._id.toString(), 'device_added', deviceName || 'New Device', {
+      deviceToken,
+      userAgent,
+      ipAddress: req.ip || req.connection.remoteAddress
+    });
+    
     res.json({ message: "Device trusted successfully" });
   } catch (err) {
     console.error(err);
@@ -347,8 +402,19 @@ app.delete("/api/users/:userId/trusted-devices/:deviceToken", authenticateToken,
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
     
+    // Find the device before removing it
+    const deviceToRemove = user.trustedDevices.find(d => d.deviceToken === deviceToken);
+    
     user.trustedDevices = user.trustedDevices.filter(d => d.deviceToken !== deviceToken);
     await user.save();
+    
+    // Log activity for removing trusted device
+    if (deviceToRemove) {
+      await logActivity(userId, 'device_removed', deviceToRemove.deviceName || 'Device', {
+        deviceToken,
+        userAgent: deviceToRemove.userAgent
+      });
+    }
     
     res.json({ message: "Device removed", trustedDevices: user.trustedDevices });
   } catch (err) {
@@ -585,6 +651,9 @@ app.post("/api/share/:userId/:filename", authenticateToken, async (req, res) => 
     });
     await user.save();
 
+    // Log share activity
+    await logActivity(userId, 'share', filename, { linkId, expiresAt });
+
     res.json({
       message: "Share link created",
       linkId,
@@ -660,6 +729,9 @@ app.post("/api/shared/:linkId/download", async (req, res) => {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found on server" });
     }
+
+    // Log download activity (note: this logs for the file owner, not the downloader)
+    await logActivity(user._id.toString(), 'download', shareLink.filename, { via: 'share-link', linkId });
 
     // Get display name for download
     const displayName = shareLink.filename.replace(/^\d+-/, '');

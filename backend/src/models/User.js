@@ -10,7 +10,6 @@ const userSchema = new mongoose.Schema({
   twoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String, default: null },
   accountStatus: { type: String, default: "Active" },
-  
   uploads: [
     {
       filename: String,
@@ -18,7 +17,6 @@ const userSchema = new mongoose.Schema({
       uploadedAt: { type: Date, default: Date.now },
     },
   ],
-  
   devices: [
     {
       device: String,
@@ -27,7 +25,6 @@ const userSchema = new mongoose.Schema({
       lastActive: { type: Date, default: Date.now },
     },
   ],
-  
   trustedDevices: [
     {
       deviceToken: { type: String, required: true, unique: true },
@@ -38,52 +35,66 @@ const userSchema = new mongoose.Schema({
       lastUsed: { type: Date, default: Date.now },
     },
   ],
-  
   deviceAuthEnabled: { type: Boolean, default: false },
-  
   // Password reset
   resetToken: String,
   resetTokenExpires: Date,
-  
-  // NEW: Device verification
+  // Device verification
   deviceVerificationCode: String,
   deviceVerificationExpires: Date,
   pendingDeviceToken: String, // Temporarily store device info during verification
   pendingDeviceName: String,
   pendingDeviceUserAgent: String,
-  
   createdAt: { type: Date, default: Date.now },
-
   sharedLinks: [
-      {
-        linkId: String,
-        filename: String,
-        password: String,
-        expiresAt: Date,
-        createdAt: { type: Date, default: Date.now },
+    {
+      linkId: String,
+      filename: String,
+      password: String,
+      expiresAt: Date,
+      createdAt: { type: Date, default: Date.now },
+    },
+  ],
+  // =========================
+  // PASSKEYS / BIOMETRICS (WebAuthn)
+  // =========================
+  currentChallenge: String,
+  webauthnCredentials: [
+    {
+      credentialID: String,     // base64url string
+      publicKey: String,        // base64url string
+      counter: { type: Number, default: 0 },
+      transports: [String],
+      createdAt: { type: Date, default: Date.now },
+    },
+  ],
+  // =========================
+  // RECENT ACTIVITY TRACKING
+  // =========================
+  recentActivity: [
+    {
+      action: {
+        type: String,
+        enum: ['upload', 'delete', 'share', 'download', 'modify', 'device_added', 'device_removed'],
+        required: true
       },
-    ],
-
-
-    accountStatus: { type: String, default: "Active" },
-    twoFactorEnabled: { type: Boolean, default: false },
-
-    // =========================
-    // PASSKEYS / BIOMETRICS (WebAuthn)
-    // =========================
-    currentChallenge: String,
-
-    webauthnCredentials: [
-      {
-        credentialID: String,     // base64url string
-        publicKey: String,        // base64url string
-        counter: { type: Number, default: 0 },
-        transports: [String],
-        createdAt: { type: Date, default: Date.now },
+      filename: {
+        type: String,
+        required: true
       },
-    ],
-  },
-  { timestamps: true }
+      timestamp: {
+        type: Date,
+        default: Date.now
+      },
+      // Optional metadata for additional context
+      metadata: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+      }
+    },
+  ],
+},
+{ timestamps: true }
 );
 
 export default mongoose.model("User", userSchema);
