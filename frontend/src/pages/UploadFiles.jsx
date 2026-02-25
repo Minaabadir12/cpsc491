@@ -137,7 +137,7 @@ const UploadFiles = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
 
-      alert("Upload successful!");
+      alert("Upload successful. Malware scan is running in the background.");
       setFiles([]);
 
       // 🔁 Refresh storage data after upload

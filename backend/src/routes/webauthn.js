@@ -1,5 +1,8 @@
 // src/routes/webauthn.js
 import express from "express";
+import jwt from "jsonwebtoken";
+import { nanoid } from "nanoid";
+import dotenv from "dotenv";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -9,10 +12,12 @@ import {
 import User from "../models/User.js";
 
 const router = express.Router();
+dotenv.config();
 
 const rpName = process.env.RP_NAME || "GuardFile";
 const rpID = process.env.RP_ID || "localhost";
 const origin = process.env.ORIGIN || "http://localhost:5173";
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-CHANGE-THIS-IN-PRODUCTION";
 
 /* =========================================================================
    BASE64URL HELPERS (safe for Mongo Buffer objects too)
@@ -77,6 +82,89 @@ function getStoredCredIdString(c) {
 function getStoredPubKeyString(c) {
   // supports either field name + any type (string/buffer/object)
   return toBase64URL(c?.publicKey || c?.credentialPublicKey);
+}
+
+function issueAuthToken(user) {
+  return jwt.sign(
+    { userId: user._id, username: user.username },
+    JWT_SECRET,
+    { expiresIn: "10m" }
+  );
+}
+
+async function recordSuccessfulAuth(user, reason = "passkey_login") {
+  if (!user) return;
+  if (!user.authMetrics) {
+    user.authMetrics = {
+      failedLoginCount: 0,
+      lastFailedLoginAt: null,
+      lastSuccessfulLoginAt: null,
+    };
+  }
+  user.authMetrics.failedLoginCount = 0;
+  user.authMetrics.lastSuccessfulLoginAt = new Date();
+  await user.save();
+}
+
+function shouldRequireVoiceLogin(user) {
+  const vb = user?.voiceBiometrics;
+  return !!(
+    vb?.enabled &&
+    vb?.loginRequired &&
+    Array.isArray(vb.embeddings) &&
+    vb.embeddings.length > 0
+  );
+}
+
+function isVoiceLocked(user) {
+  const lockUntil = user?.voiceBiometrics?.lockUntil;
+  return !!(lockUntil && new Date(lockUntil) > new Date());
+}
+
+function generateVoiceChallengePhrase() {
+  const phrases = [
+    "GuardFile protects my files",
+    "My voice confirms this login",
+    "I am signing in to GuardFile",
+    "Security first with GuardFile",
+    "This is my secure login phrase",
+  ];
+  const pick = phrases[Math.floor(Math.random() * phrases.length)];
+  const nonce = String(Math.floor(100 + Math.random() * 900));
+  return `${pick} ${nonce}`;
+}
+
+async function prepareVoiceLoginChallenge(user) {
+  const challengeId = nanoid(24);
+  const phrase = generateVoiceChallengePhrase();
+  const expiresAt = new Date(Date.now() + 2 * 60 * 1000);
+
+  if (!user.voiceBiometrics) {
+    user.voiceBiometrics = {
+      enabled: false,
+      loginRequired: false,
+      threshold: 0.9,
+      phrase: "My voice unlocks GuardFile",
+      embeddings: [],
+    };
+  }
+
+  user.voiceBiometrics.pendingChallenge = {
+    challengeId,
+    phrase,
+    expiresAt,
+    attempts: 0,
+  };
+  await user.save();
+
+  return {
+    requiresVoice: true,
+    email: user.email,
+    challengeId,
+    phrase,
+    expiresAt,
+    message: "Voice verification required",
+  };
 }
 
 /* =========================================================================
@@ -264,6 +352,55 @@ router.post("/webauthn/login/options", async (req, res) => {
   }
 });
 
+// ✅ passkey login options by email for login page UX
+router.post("/webauthn/login/options-by-email", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Missing email" });
+
+  try {
+    const user = await User.findOne({ email }).select("email username webauthnCredentials currentChallenge");
+    if (!user) return res.status(404).json({ error: "No account found for this email" });
+
+    if (!Array.isArray(user.webauthnCredentials)) user.webauthnCredentials = [];
+
+    const allowCredentials = (user.webauthnCredentials || [])
+      .map((c) => {
+        const idStr = getStoredCredIdString(c);
+        return idStr
+          ? {
+              id: idStr,
+              type: "public-key",
+              transports: c?.transports || [],
+            }
+          : null;
+      })
+      .filter(Boolean);
+
+    if (allowCredentials.length === 0) {
+      return res.status(400).json({ error: "No passkey found for this account" });
+    }
+
+    const options = await generateAuthenticationOptions({
+      timeout: 60000,
+      rpID,
+      allowCredentials,
+      userVerification: "preferred",
+    });
+
+    user.currentChallenge = options.challenge;
+    await user.save();
+
+    res.json({
+      email: user.email,
+      userId: user._id,
+      options,
+    });
+  } catch (e) {
+    console.error("login/options-by-email error:", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ✅ 4) Finish login: verify + update counter
 router.post("/webauthn/login/verify", async (req, res) => {
   const { userId, asseResp } = req.body;
@@ -324,6 +461,84 @@ router.post("/webauthn/login/verify", async (req, res) => {
     res.json({ message: "Passkey login verified", verified: true });
   } catch (e) {
     console.error("login/verify error:", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ✅ passkey login verify by email/userId and issue auth result for login page
+router.post("/webauthn/login/verify-by-email", async (req, res) => {
+  const { email, userId, asseResp } = req.body;
+  if ((!email && !userId) || !asseResp) {
+    return res.status(400).json({ error: "Missing email/userId or asseResp" });
+  }
+
+  try {
+    const user = await User.findOne(email ? { email } : { _id: userId })
+      .select("username email webauthnCredentials currentChallenge voiceBiometrics");
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user.currentChallenge) return res.status(400).json({ error: "No challenge found. Restart login." });
+
+    if (!Array.isArray(user.webauthnCredentials)) user.webauthnCredentials = [];
+
+    const incomingId = normalizeCredId(asseResp?.id);
+    const cred = (user.webauthnCredentials || []).find((c) => getStoredCredIdString(c) === incomingId);
+    if (!cred) return res.status(400).json({ error: "Unknown credential" });
+
+    const credIdStr = getStoredCredIdString(cred);
+    const pubKeyStr = getStoredPubKeyString(cred);
+
+    const credentialIDBuf = fromBase64URL(credIdStr);
+    const credentialPublicKeyBuf = fromBase64URL(pubKeyStr);
+
+    if (!pubKeyStr || credentialPublicKeyBuf.length === 0) {
+      user.currentChallenge = null;
+      await user.save();
+      return res.status(400).json({ error: "Passkey data is broken (missing public key). Recreate passkey." });
+    }
+
+    const verification = await verifyAuthenticationResponse({
+      response: asseResp,
+      expectedChallenge: user.currentChallenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      credential: {
+        id: credentialIDBuf,
+        publicKey: credentialPublicKeyBuf,
+        counter: Number(cred.counter) || 0,
+      },
+      requireUserVerification: false,
+    });
+
+    const { verified, authenticationInfo } = verification;
+    if (!verified) return res.status(400).json({ error: "Authentication not verified" });
+
+    if (authenticationInfo?.newCounter !== undefined) {
+      cred.counter = authenticationInfo.newCounter;
+    }
+    user.currentChallenge = null;
+    await user.save();
+    await recordSuccessfulAuth(user, "passkey_login");
+
+    if (shouldRequireVoiceLogin(user)) {
+      if (isVoiceLocked(user)) {
+        return res.status(423).json({
+          error: "Voice login is temporarily locked due to repeated failed attempts",
+          lockUntil: user.voiceBiometrics.lockUntil,
+        });
+      }
+      const voiceChallenge = await prepareVoiceLoginChallenge(user);
+      return res.json(voiceChallenge);
+    }
+
+    const token = issueAuthToken(user);
+    return res.json({
+      message: "Passkey login successful",
+      token,
+      userId: user._id,
+      username: user.username,
+    });
+  } catch (e) {
+    console.error("login/verify-by-email error:", e);
     res.status(500).json({ error: "Server error" });
   }
 });

@@ -1,22 +1,25 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { startAuthentication } from "@simplewebauthn/browser";
 import "./LoginPage.css";
 import { getOrCreateDeviceToken, getDeviceInfo } from "../utils/deviceFingerprint";
+import { captureVoiceEmbedding } from "../utils/voiceBiometrics";
 
 import user_icon from "../Components/Assets/person.png";
 import email_icon from "../Components/Assets/email.png";
 import password_icon from "../Components/Assets/password.png";
 
 const LoginPage = () => {
-  const [action, setAction] = useState("Sign Up");
+  const [action, setAction] = useState(() => localStorage.getItem("authMode") || "Login");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  
+
   // Device verification states
   const [showVerification, setShowVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
+  const [verificationEmail, setVerificationEmail] = useState("");
   const [loginData, setLoginData] = useState(null);
 
   // 2FA states
@@ -24,30 +27,116 @@ const LoginPage = () => {
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
 
+  // Voice verification states
+  const [showVoice, setShowVoice] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceFeedback, setVoiceFeedback] = useState("");
+  const [voiceChallenge, setVoiceChallenge] = useState(null);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+
   const navigate = useNavigate();
 
+  useEffect(() => {
+    localStorage.setItem("authMode", action);
+  }, [action]);
+
+  const getPasskeyErrorMessage = (err) => {
+    const raw = err?.message || "";
+    const msg = raw.toLowerCase();
+    const name = err?.name || "";
+
+    if (name === "NotAllowedError") {
+      if (msg.includes("timed out") || msg.includes("privacy-considerations-client")) {
+        return "Passkey request timed out or was blocked. Use HTTPS/localhost, keep this tab focused, and approve the device prompt quickly.";
+      }
+      return "Passkey was canceled or blocked by the browser/device prompt.";
+    }
+
+    if (name === "SecurityError") {
+      return "Passkey is blocked by browser security rules. Check RP ID/Origin and use HTTPS or localhost.";
+    }
+
+    if (name === "InvalidStateError") {
+      return "This passkey is in an invalid state on this device. Try another registered authenticator.";
+    }
+
+    if (msg.includes("no passkey found")) {
+      return "No passkey is enrolled for this email. Enroll one first in Settings.";
+    }
+
+    if (msg.includes("no account found")) {
+      return "No account found for that email.";
+    }
+
+    return raw || "Passkey login failed.";
+  };
+
+  const finalizeLoginWithToken = async (authPayload, loginEmail) => {
+    const deviceToken = getOrCreateDeviceToken();
+    const deviceInfo = getDeviceInfo();
+
+    const deviceCheckRes = await fetch("http://localhost:3000/check-device", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: loginEmail, deviceToken }),
+    });
+    const deviceCheckData = await deviceCheckRes.json();
+
+    if (deviceCheckData.deviceAuthEnabled && !deviceCheckData.trusted) {
+      const verifyRes = await fetch("http://localhost:3000/send-device-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: loginEmail,
+          deviceToken,
+          deviceName: deviceInfo.deviceName,
+          userAgent: deviceInfo.userAgent,
+        }),
+      });
+
+      if (!verifyRes.ok) {
+        alert("Failed to send device verification code. Please try again.");
+        return;
+      }
+
+      setLoginData(authPayload);
+      setVerificationEmail(loginEmail);
+      setShowVerification(true);
+      alert("A verification code has been sent to your email. Please check your inbox.");
+      return;
+    }
+
+    localStorage.setItem("token", authPayload.token);
+    localStorage.setItem("userId", authPayload.userId);
+    localStorage.setItem("username", authPayload.username);
+    navigate("/home");
+  };
+
+  const startVoiceFlow = (payload, emailForVoice) => {
+    setVoiceChallenge({
+      email: payload.email || emailForVoice,
+      challengeId: payload.challengeId,
+      phrase: payload.phrase,
+      expiresAt: payload.expiresAt,
+    });
+    setVoiceFeedback("");
+    setShowTwoFactor(false);
+    setShowVoice(true);
+  };
+
   const handleSubmit = async () => {
-    // Basic required field validation
     if (!email || !password || (action === "Sign Up" && !username)) {
       alert("Please fill in all required fields.");
       return;
     }
 
-    // Confirm password match validation for Sign Up
     if (action === "Sign Up" && password !== confirmPassword) {
       alert("Passwords do not match.");
       return;
     }
 
-    const url =
-      action === "Sign Up"
-        ? "http://localhost:3000/signup"
-        : "http://localhost:3000/login";
-
-    const body =
-      action === "Sign Up"
-        ? { username, email, password }
-        : { email, password };
+    const url = action === "Sign Up" ? "http://localhost:3000/signup" : "http://localhost:3000/login";
+    const body = action === "Sign Up" ? { username, email, password } : { email, password };
 
     try {
       const res = await fetch(url, {
@@ -55,75 +144,36 @@ const LoginPage = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || "Something went wrong.");
+        const lockMsg = data.lockUntil
+          ? ` Locked until ${new Date(data.lockUntil).toLocaleString()}.`
+          : "";
+        alert((data.error || "Something went wrong.") + lockMsg);
         return;
       }
 
-      // ✅ LOGIN SUCCESS
       if (action === "Login") {
-        // Check if 2FA is required
         if (data.requiresTwoFactor) {
           setPendingEmail(data.email);
           setShowTwoFactor(true);
           return;
         }
 
-        // Get device token
-        const deviceToken = getOrCreateDeviceToken();
-        const deviceInfo = getDeviceInfo();
-
-        // Check if device is trusted
-        const deviceCheckRes = await fetch("http://localhost:3000/check-device", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, deviceToken }),
-        });
-
-        const deviceCheckData = await deviceCheckRes.json();
-
-        // If device auth is enabled and device is not trusted
-        if (deviceCheckData.deviceAuthEnabled && !deviceCheckData.trusted) {
-          // Send verification code to email
-          const verifyRes = await fetch("http://localhost:3000/send-device-verification", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email,
-              deviceToken,
-              deviceName: deviceInfo.deviceName,
-              userAgent: deviceInfo.userAgent,
-            }),
-          });
-
-          if (verifyRes.ok) {
-            // Store login data and show verification input
-            setLoginData(data);
-            setShowVerification(true);
-            alert("A verification code has been sent to your email. Please check your inbox.");
-            return;
-          } else {
-            alert("Failed to send verification code. Please try again.");
-            return;
-          }
+        if (data.requiresVoice) {
+          startVoiceFlow(data, email);
+          return;
         }
 
-        // Device is trusted or auth not enabled - proceed with login
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("userId", data.userId);
-        localStorage.setItem("username", data.username);
-        navigate("/home");
+        if (data.token) {
+          await finalizeLoginWithToken(data, email);
+        }
         return;
       }
 
-      // ✅ SIGNUP SUCCESS
       alert("Signup successful. Please log in.");
       setAction("Login");
-
-      // Clear all fields
       setUsername("");
       setEmail("");
       setPassword("");
@@ -145,11 +195,10 @@ const LoginPage = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
+          email: verificationEmail,
           code: verificationCode,
         }),
       });
-
       const data = await res.json();
 
       if (!res.ok) {
@@ -157,11 +206,10 @@ const LoginPage = () => {
         return;
       }
 
-      // Verification successful - complete login
       localStorage.setItem("token", loginData.token);
       localStorage.setItem("userId", loginData.userId);
       localStorage.setItem("username", loginData.username);
-      
+
       alert("Device verified successfully!");
       navigate("/home");
     } catch (err) {
@@ -185,62 +233,185 @@ const LoginPage = () => {
           twoFactorToken: twoFactorCode,
         }),
       });
-
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || "Invalid 2FA code");
+        const lockMsg = data.lockUntil
+          ? ` Locked until ${new Date(data.lockUntil).toLocaleString()}.`
+          : "";
+        alert((data.error || "Invalid 2FA code") + lockMsg);
         return;
       }
 
-      // Get device token for device verification check
-      const deviceToken = getOrCreateDeviceToken();
-      const deviceInfo = getDeviceInfo();
-
-      // Check if device is trusted
-      const deviceCheckRes = await fetch("http://localhost:3000/check-device", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: pendingEmail, deviceToken }),
-      });
-
-      const deviceCheckData = await deviceCheckRes.json();
-
-      // If device auth is enabled and device is not trusted
-      if (deviceCheckData.deviceAuthEnabled && !deviceCheckData.trusted) {
-        // Send verification code to email
-        const verifyRes = await fetch("http://localhost:3000/send-device-verification", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: pendingEmail,
-            deviceToken,
-            deviceName: deviceInfo.deviceName,
-            userAgent: deviceInfo.userAgent,
-          }),
-        });
-
-        if (verifyRes.ok) {
-          setLoginData(data);
-          setShowTwoFactor(false);
-          setShowVerification(true);
-          alert("A verification code has been sent to your email.");
-          return;
-        }
+      if (data.requiresVoice) {
+        startVoiceFlow(data, pendingEmail);
+        return;
       }
 
-      // Device is trusted or auth not enabled - complete login
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("userId", data.userId);
-      localStorage.setItem("username", data.username);
-      navigate("/home");
+      if (data.token) {
+        await finalizeLoginWithToken(data, pendingEmail);
+      }
     } catch (err) {
       console.error(err);
       alert("Server error during 2FA verification");
     }
   };
 
-  // If showing 2FA verification screen
+  const handleVerifyVoice = async () => {
+    if (!voiceChallenge?.email || !voiceChallenge?.challengeId) {
+      alert("Voice challenge is missing. Please login again.");
+      setShowVoice(false);
+      return;
+    }
+
+    try {
+      setVoiceBusy(true);
+      setVoiceFeedback("Recording voice sample...");
+      const embedding = await captureVoiceEmbedding(3000);
+
+      setVoiceFeedback("Verifying voice...");
+      const res = await fetch("http://localhost:3000/login/verify-voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: voiceChallenge.email,
+          challengeId: voiceChallenge.challengeId,
+          embedding,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        const lockMsg = data.lockUntil
+          ? ` Locked until ${new Date(data.lockUntil).toLocaleString()}.`
+          : "";
+        setVoiceFeedback(`${data.error || "Voice verification failed"}${lockMsg}`);
+        return;
+      }
+
+      setShowVoice(false);
+      setVoiceChallenge(null);
+      setVoiceFeedback("");
+      await finalizeLoginWithToken(data, voiceChallenge.email);
+    } catch (err) {
+      console.error(err);
+      setVoiceFeedback("Voice verification failed. Please try again.");
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (!email) {
+      alert("Enter your email first, then use passkey login.");
+      return;
+    }
+
+    try {
+      setPasskeyBusy(true);
+
+      const optRes = await fetch("http://localhost:3000/webauthn/login/options-by-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const optData = await optRes.json();
+      if (!optRes.ok) throw new Error(optData.error || "Failed to start passkey login");
+
+      const asseResp = await startAuthentication(optData.options);
+
+      const verRes = await fetch("http://localhost:3000/webauthn/login/verify-by-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: optData.email || email,
+          userId: optData.userId,
+          asseResp,
+        }),
+      });
+      const verData = await verRes.json();
+      if (!verRes.ok) {
+        const lockMsg = verData.lockUntil
+          ? ` Locked until ${new Date(verData.lockUntil).toLocaleString()}.`
+          : "";
+        throw new Error((verData.error || "Passkey login failed") + lockMsg);
+      }
+
+      if (verData.requiresVoice) {
+        startVoiceFlow(verData, optData.email || email);
+        return;
+      }
+
+      if (verData.token) {
+        await finalizeLoginWithToken(verData, optData.email || email);
+      }
+    } catch (err) {
+      console.error(err);
+      alert(getPasskeyErrorMessage(err));
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  if (showVoice) {
+    return (
+      <div className="title">
+        <h1>GuardFile</h1>
+        <div className="container">
+          <div className="header">
+            <div className="text">Voice Verification</div>
+            <div className="underline"></div>
+          </div>
+
+          <div className="inputs">
+            <p style={{ textAlign: "center", marginBottom: "16px", color: "#666" }}>
+              Speak this phrase clearly:
+            </p>
+            <p
+              style={{
+                textAlign: "center",
+                marginBottom: "12px",
+                fontWeight: 700,
+                background: "#f5f5f5",
+                padding: "10px",
+                borderRadius: "8px",
+              }}
+            >
+              {voiceChallenge?.phrase || "My voice confirms this login"}
+            </p>
+            {voiceChallenge?.expiresAt && (
+              <p style={{ textAlign: "center", marginBottom: "16px", color: "#777", fontSize: "0.9rem" }}>
+                Expires: {new Date(voiceChallenge.expiresAt).toLocaleTimeString()}
+              </p>
+            )}
+            {voiceFeedback && (
+              <p style={{ textAlign: "center", marginBottom: "12px", color: "#444" }}>
+                {voiceFeedback}
+              </p>
+            )}
+          </div>
+
+          <div className="submit-container">
+            <div className="submit" onClick={handleVerifyVoice}>
+              {voiceBusy ? "Verifying..." : "Record & Verify Voice"}
+            </div>
+            <div
+              className="submit gray"
+              onClick={() => {
+                setShowVoice(false);
+                setVoiceBusy(false);
+                setVoiceFeedback("");
+                setVoiceChallenge(null);
+              }}
+            >
+              Cancel
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (showTwoFactor) {
     return (
       <div className="title">
@@ -288,7 +459,6 @@ const LoginPage = () => {
     );
   }
 
-  // If showing verification screen
   if (showVerification) {
     return (
       <div className="title">
@@ -301,16 +471,16 @@ const LoginPage = () => {
 
           <div className="inputs">
             <p style={{ textAlign: "center", marginBottom: "20px", color: "#666" }}>
-              Enter the 6-digit code sent to <strong>{email}</strong>
+              Enter the 6-digit code sent to <strong>{verificationEmail}</strong>
             </p>
-            
+
             <div className="input">
               <img src={email_icon} width={25} height={25} alt="Code" />
               <input
                 type="text"
                 placeholder="Enter 6-digit code"
                 value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 maxLength={6}
               />
             </div>
@@ -325,6 +495,7 @@ const LoginPage = () => {
               onClick={() => {
                 setShowVerification(false);
                 setVerificationCode("");
+                setVerificationEmail("");
                 setLoginData(null);
               }}
             >
@@ -336,7 +507,6 @@ const LoginPage = () => {
     );
   }
 
-  // Regular login/signup screen
   return (
     <div className="title">
       <h1>GuardFile</h1>
@@ -380,7 +550,6 @@ const LoginPage = () => {
             />
           </div>
 
-          {/* Confirm Password for Sign Up */}
           {action === "Sign Up" && (
             <div className="input">
               <img src={password_icon} width={25} height={25} alt="Confirm Password" />
@@ -390,7 +559,6 @@ const LoginPage = () => {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
-              {/* Real-time password match feedback */}
               {confirmPassword && (
                 <p
                   style={{
@@ -399,9 +567,7 @@ const LoginPage = () => {
                     marginTop: "0.2rem",
                   }}
                 >
-                  {password === confirmPassword
-                    ? "Passwords match"
-                    : "Passwords do not match"}
+                  {password === confirmPassword ? "Passwords match" : "Passwords do not match"}
                 </p>
               )}
             </div>
@@ -411,12 +577,23 @@ const LoginPage = () => {
         {action === "Login" && (
           <div className="forgot-password">
             Lost password?{" "}
-            <span
-              style={{ cursor: "pointer", color: "blue" }}
-              onClick={() => navigate("/resetpassword")}
-            >
+            <span style={{ cursor: "pointer", color: "blue" }} onClick={() => navigate("/resetpassword")}>
               click here
             </span>
+          </div>
+        )}
+
+        {action === "Login" && (
+          <div className="passkey-row">
+            <button
+              type="button"
+              onClick={handlePasskeyLogin}
+              disabled={passkeyBusy}
+              className="passkey-btn"
+            >
+              {passkeyBusy ? "Authenticating..." : "Express Sign-In"}
+            </button>
+            <p className="passkey-note">Use Face ID, Touch ID, Windows Hello, or security key</p>
           </div>
         )}
 
@@ -425,12 +602,7 @@ const LoginPage = () => {
             {action}
           </div>
 
-          <div
-            className="submit gray"
-            onClick={() =>
-              setAction(action === "Login" ? "Sign Up" : "Login")
-            }
-          >
+          <div className="submit gray" onClick={() => setAction(action === "Login" ? "Sign Up" : "Login")}>
             {action === "Login" ? "Switch to Sign Up" : "Switch to Login"}
           </div>
         </div>

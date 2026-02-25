@@ -2,6 +2,7 @@ import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, logout } from "../utils/api";
+import { captureVoiceEmbedding } from "../utils/voiceBiometrics";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -61,6 +62,14 @@ const Settings = () => {
   // =========================
   const [deviceAuthEnabled, setDeviceAuthEnabled] = useState(false);
   const [trustedDevices, setTrustedDevices] = useState([]);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [voicePhrase, setVoicePhrase] = useState("My voice unlocks GuardFile");
+  const [voiceSampleCount, setVoiceSampleCount] = useState(0);
+  const [voiceLockUntil, setVoiceLockUntil] = useState(null);
+  const [voiceLoginRequired, setVoiceLoginRequired] = useState(false);
+  const [voiceThreshold, setVoiceThreshold] = useState(0.9);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceFeedback, setVoiceFeedback] = useState("");
 
   // =========================
   // FETCH USER DATA
@@ -87,6 +96,14 @@ const Settings = () => {
         setTwoFactorAuth(data.twoFactorEnabled || false);
         setDeviceAuthEnabled(data.deviceAuthEnabled || false);
         setTrustedDevices(data.trustedDevices || []);
+
+        const vb = data.voiceBiometrics || {};
+        setVoiceEnabled(!!vb.enabled);
+        setVoiceLoginRequired(!!vb.loginRequired);
+        setVoiceThreshold(typeof vb.threshold === "number" ? vb.threshold : 0.9);
+        setVoicePhrase(vb.phrase || "My voice unlocks GuardFile");
+        setVoiceSampleCount(Array.isArray(vb.embeddings) ? vb.embeddings.length : 0);
+        setVoiceLockUntil(vb.lockUntil || null);
       } catch (err) {
         console.error(err);
       } finally {
@@ -320,6 +337,135 @@ const Settings = () => {
     }
   };
 
+  const refreshVoiceStatus = async () => {
+    try {
+      const res = await fetchWithAuth(`http://localhost:3000/api/voice/status/${userId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setVoiceEnabled(!!data.enabled);
+      setVoiceLoginRequired(!!data.loginRequired);
+      setVoiceThreshold(typeof data.threshold === "number" ? data.threshold : 0.9);
+      setVoicePhrase(data.phrase || "My voice unlocks GuardFile");
+      setVoiceSampleCount(data.sampleCount || 0);
+      setVoiceLockUntil(data.lockUntil || null);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleEnrollVoice = async () => {
+    try {
+      setVoiceBusy(true);
+      setVoiceFeedback("Recording voice sample...");
+
+      const embedding = await captureVoiceEmbedding(3500);
+
+      setVoiceFeedback("Uploading enrollment sample...");
+      const res = await fetchWithAuth(`http://localhost:3000/api/voice/enroll/${userId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          embedding,
+          phrase: voicePhrase,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to enroll voice sample");
+
+      await refreshVoiceStatus();
+      setVoiceFeedback(`Voice enrolled. Total samples: ${data.sampleCount}`);
+    } catch (err) {
+      console.error(err);
+      setVoiceFeedback(err.message || "Voice enrollment failed");
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handleVerifyVoice = async () => {
+    try {
+      setVoiceBusy(true);
+      setVoiceFeedback("Recording verification sample...");
+
+      const embedding = await captureVoiceEmbedding(3000);
+
+      setVoiceFeedback("Verifying voice...");
+      const res = await fetchWithAuth(`http://localhost:3000/api/voice/verify/${userId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ embedding }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Voice verification failed");
+
+      if (data.verified) {
+        setVoiceFeedback(`Verified (score: ${data.score}, threshold: ${data.threshold})`);
+      } else {
+        setVoiceFeedback(`Not verified (score: ${data.score}, threshold: ${data.threshold})`);
+      }
+
+      await refreshVoiceStatus();
+    } catch (err) {
+      console.error(err);
+      setVoiceFeedback(err.message || "Voice verification failed");
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handleRemoveVoice = async () => {
+    const confirmed = window.confirm("Remove all enrolled voice samples?");
+    if (!confirmed) return;
+
+    try {
+      setVoiceBusy(true);
+      setVoiceFeedback("Removing voice profile...");
+      const res = await fetchWithAuth(`http://localhost:3000/api/voice/${userId}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to remove voice profile");
+
+      await refreshVoiceStatus();
+      setVoiceFeedback("Voice biometrics removed");
+    } catch (err) {
+      console.error(err);
+      setVoiceFeedback(err.message || "Failed to remove voice biometrics");
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handleSaveVoicePolicy = async () => {
+    try {
+      setVoiceBusy(true);
+      setVoiceFeedback("Saving voice login policy...");
+
+      const res = await fetchWithAuth(`http://localhost:3000/api/voice/login-setting/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          loginRequired: voiceLoginRequired,
+          threshold: Number(voiceThreshold),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save voice login policy");
+
+      await refreshVoiceStatus();
+      setVoiceFeedback("Voice login policy saved");
+    } catch (err) {
+      console.error(err);
+      setVoiceFeedback(err.message || "Failed to save voice login policy");
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
   // =========================
   // 2FA HANDLERS
   // =========================
@@ -504,6 +650,93 @@ const Settings = () => {
 
           <p className="text-sm text-gray-500 mt-3">
           </p>
+        </div>
+
+        {/* VOICE BIOMETRICS */}
+        <div className="bg-white rounded-lg shadow p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Voice Biometrics</h2>
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${voiceEnabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
+              {voiceEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+
+          <div className="mb-3">
+            <label className="block text-sm font-medium mb-1">Phrase</label>
+            <input
+              type="text"
+              value={voicePhrase}
+              onChange={(e) => setVoicePhrase(e.target.value.slice(0, 140))}
+              className="input input-bordered w-full max-w-lg"
+              placeholder="My voice unlocks GuardFile"
+              disabled={voiceBusy}
+            />
+          </div>
+
+          <div className="mb-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={voiceLoginRequired}
+                onChange={(e) => setVoiceLoginRequired(e.target.checked)}
+                className="checkbox checkbox-primary"
+                disabled={voiceBusy}
+              />
+              <span className="text-sm font-medium">Require at login</span>
+            </label>
+            <div>
+              <label className="block text-sm font-medium mb-1">Threshold</label>
+              <input
+                type="number"
+                min="0.75"
+                max="0.99"
+                step="0.01"
+                value={voiceThreshold}
+                onChange={(e) => setVoiceThreshold(e.target.value)}
+                className="input input-bordered w-full max-w-xs"
+                disabled={voiceBusy}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-3">
+            <button onClick={handleEnrollVoice} className="btn btn-primary" disabled={voiceBusy}>
+              {voiceBusy ? "Working..." : "Enroll Sample"}
+            </button>
+            <button
+              onClick={handleVerifyVoice}
+              className="btn btn-outline btn-success"
+              disabled={voiceBusy || voiceSampleCount === 0}
+            >
+              {voiceBusy ? "Working..." : "Verify"}
+            </button>
+            <button
+              onClick={handleRemoveVoice}
+              className="btn btn-outline btn-error"
+              disabled={voiceBusy || voiceSampleCount === 0}
+            >
+              Remove
+            </button>
+            <button
+              onClick={handleSaveVoicePolicy}
+              className="btn btn-outline"
+              disabled={voiceBusy}
+            >
+              Save
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs mb-1">
+            <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">Samples: {voiceSampleCount}</span>
+            <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">Threshold: {Number(voiceThreshold).toFixed(2)}</span>
+            <span className={`px-2 py-1 rounded-full ${voiceLockUntil ? "bg-rose-100 text-rose-700" : "bg-green-100 text-green-700"}`}>
+              {voiceLockUntil ? `Locked` : "Not locked"}
+            </span>
+          </div>
+
+          {voiceFeedback && (
+            <p className="text-xs mt-2 text-blue-700">{voiceFeedback}</p>
+          )}
         </div>
 
         {/* PASSWORD CHANGE */}

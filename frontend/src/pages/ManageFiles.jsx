@@ -28,6 +28,14 @@ const ManageFiles = () => {
     return filename.replace(/^\d+-/, '');
   };
 
+  const getScanMeta = (status) => {
+    const value = status || "pending";
+    if (value === "clean") return { label: "Ready", className: "text-green-700 bg-green-100" };
+    if (value === "infected") return { label: "Blocked", className: "text-red-700 bg-red-100" };
+    if (value === "error") return { label: "Scan Error", className: "text-orange-700 bg-orange-100" };
+    return { label: "Scanning", className: "text-blue-700 bg-blue-100" };
+  };
+
   // ✅ Get userId and token safely
   const userId = localStorage.getItem("userId");
   const token = localStorage.getItem("token");
@@ -66,6 +74,27 @@ const ManageFiles = () => {
 
     fetchDashboard();
   }, [userId, token, navigate]);
+
+  useEffect(() => {
+    if (!userId || !token) return;
+
+    const hasPending = files.some((f) => (f.scanStatus || "pending") === "pending");
+    if (!hasPending) return;
+
+    const id = setInterval(async () => {
+      try {
+        const res = await fetchWithAuth(`http://localhost:3000/api/dashboard/${userId}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        setUserData(data);
+        setFiles(data.uploads ?? []);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 8000);
+
+    return () => clearInterval(id);
+  }, [files, token, userId]);
 
   if (loading) {
     return (
@@ -141,6 +170,12 @@ const ManageFiles = () => {
   };
 
   const handleShare = (filename) => {
+    const file = files.find((f) => f.filename === filename);
+    if (!file || file.scanStatus !== "clean") {
+      alert("This file is not shareable until malware scanning completes successfully.");
+      return;
+    }
+
     setShareFilename(filename);
     setShareExpiry("24h");
     setSharePassword("");
@@ -261,6 +296,9 @@ const ManageFiles = () => {
                 <h3 className="font-semibold text-gray-800 break-words">
                   {getDisplayName(file.filename)}
                 </h3>
+                <span className={`inline-block text-xs px-2 py-1 rounded-full mt-2 ${getScanMeta(file.scanStatus).className}`}>
+                  {getScanMeta(file.scanStatus).label}
+                </span>
                 <p className="text-sm text-gray-500">
                   {(file.size ?? 0).toFixed(2)} MB
                 </p>
@@ -276,7 +314,8 @@ const ManageFiles = () => {
                 <button
                   onClick={() => handleDownload(file.filename)}
                   className="btn btn-sm btn-outline flex items-center gap-1"
-                  title="Download file"
+                  title={file.scanStatus === "clean" ? "Download file" : "File is not ready for download"}
+                  disabled={file.scanStatus !== "clean"}
                 >
                   <Download className="w-4 h-4" /> Download
                 </button>
@@ -284,7 +323,8 @@ const ManageFiles = () => {
                 <button
                   onClick={() => handleShare(file.filename)}
                   className="btn btn-sm btn-outline flex items-center gap-1"
-                  title="Share file"
+                  title={file.scanStatus === "clean" ? "Share file" : "File is not ready for sharing"}
+                  disabled={file.scanStatus !== "clean"}
                 >
                   <Share2 className="w-4 h-4" /> Share
                 </button>

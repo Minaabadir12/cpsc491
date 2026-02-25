@@ -105,3 +105,73 @@
     
     
 }
+
+.passkey-row {
+    width: 100%;
+    margin-top: 14px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.passkey-btn {
+    position: relative;
+    overflow: hidden;
+    width: 260px;
+    max-width: 100%;
+    height: 50px;
+    border: 1px solid #4c00b4;
+    border-radius: 14px;
+    cursor: pointer;
+    color: #f9fafb;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    background: linear-gradient(135deg, #4c00b4 0%, #6d17db 100%);
+    box-shadow: 0 8px 16px rgba(76, 0, 180, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.passkey-btn::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: -35%;
+    width: 30%;
+    height: calc(100% + 2px);
+    transform: skewX(-20deg);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.24) 48%,
+      transparent 100%
+    );
+    transition: left 0.45s ease;
+}
+
+.passkey-btn:hover:not(:disabled) {
+    transform: translateY(-1px) scale(1.01);
+    box-shadow: 0 12px 20px rgba(76, 0, 180, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+    filter: brightness(1.04);
+}
+
+.passkey-btn:hover:not(:disabled)::before {
+    left: 125%;
+}
+
+.passkey-btn:active:not(:disabled) {
+    transform: translateY(0) scale(0.995);
+}
+
+.passkey-btn:disabled {
+    opacity: 0.64;
+    cursor: not-allowed;
+}
+
+.passkey-note {
+    margin-top: 8px;
+    margin-bottom: 0;
+    font-size: 12px;
+    color: #676767;
+}
