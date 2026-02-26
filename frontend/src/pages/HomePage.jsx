@@ -15,6 +15,66 @@ const HomePage = () => {
     return filename.replace(/^\d+-/, '');
   };
 
+  // Helper function to format IP address for display
+  const formatIPAddress = (ip) => {
+    if (!ip) return 'Unknown';
+    // Remove IPv6 prefix for localhost
+    if (ip === '::ffff:127.0.0.1' || ip === '::1' || ip === '127.0.0.1') {
+      return 'Local Device';
+    }
+    // Remove IPv6 prefix for other IPs
+    return ip.replace('::ffff:', '');
+  };
+
+  // Helper function to get activity icon and color based on action type
+  const getActivityStyle = (action) => {
+    const styles = {
+      upload: {
+        icon: "↑",
+        color: "text-green-600",
+        bgColor: "bg-green-100",
+        label: "Uploaded"
+      },
+      delete: {
+        icon: "🗑",
+        color: "text-red-600",
+        bgColor: "bg-red-100",
+        label: "Deleted"
+      },
+      share: {
+        icon: "↗",
+        color: "text-blue-600",
+        bgColor: "bg-blue-100",
+        label: "Shared"
+      },
+      download: {
+        icon: "↓",
+        color: "text-purple-600",
+        bgColor: "bg-purple-100",
+        label: "Downloaded"
+      },
+      modify: {
+        icon: "✎",
+        color: "text-yellow-600",
+        bgColor: "bg-yellow-100",
+        label: "Modified"
+      },
+      device_added: {
+        icon: "💻",
+        color: "text-teal-600",
+        bgColor: "bg-teal-100",
+        label: "Device Added"
+      },
+      device_removed: {
+        icon: "⊗",
+        color: "text-orange-600",
+        bgColor: "bg-orange-100",
+        label: "Device Removed"
+      }
+    };
+    return styles[action] || styles.upload;
+  };
+
   // Redirect to login if no user is logged in
   useEffect(() => {
     const userId = localStorage.getItem("userId");
@@ -161,7 +221,43 @@ const HomePage = () => {
           {/* Recent Activity */}
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Recent Activity</h2>
-            {userData.uploads && userData.uploads.length > 0 ? (
+            {userData.recentActivity && userData.recentActivity.length > 0 ? (
+              <ul className="space-y-3">
+                {userData.recentActivity.map((activity, index) => {
+                  const style = getActivityStyle(activity.action);
+                  return (
+                    <li
+                      key={index}
+                      className="flex items-center justify-between border-b border-gray-200 pb-3 hover:bg-gray-50 px-2 py-2 rounded transition"
+                    >
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className={`w-8 h-8 rounded-full ${style.bgColor} flex items-center justify-center text-lg`}>
+                          {style.icon}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-gray-800 font-medium">
+                            {getDisplayName(activity.filename)}
+                          </p>
+                          <p className={`text-sm ${style.color} font-semibold`}>
+                            {style.label}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-gray-500 text-sm whitespace-nowrap ml-4">
+                        {activity.timestamp
+                          ? new Date(activity.timestamp).toLocaleDateString("en-US", {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })
+                          : "Unknown"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : userData.uploads && userData.uploads.length > 0 ? (
+              // Fallback to old format if recentActivity is not available
               <ul className="space-y-3">
                 {userData.uploads.map((item, index) => (
                   <li
@@ -182,55 +278,40 @@ const HomePage = () => {
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-500">No files uploaded yet.</p>
+              <p className="text-gray-500">No recent activity.</p>
             )}
           </div>
 
           {/* Device Management */}
           <div className="bg-white p-6 rounded-lg shadow-md">
             <h2 className="text-2xl font-semibold mb-4">Active Devices</h2>
-            {userData.devices && userData.devices.length > 0 ? (
-              <>
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-300 text-gray-700">
-                      <th className="py-2">Device</th>
-                      <th>Location</th>
-                      <th>Last Active</th>
-                      <th></th>
+            {userData.trustedDevices && userData.trustedDevices.length > 0 ? (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-300 text-gray-700">
+                    <th className="py-2">Device</th>
+                    <th>Last Active</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {userData.trustedDevices.map((d, i) => (
+                    <tr key={i} className="border-b border-gray-200 text-gray-600">
+                      <td className="py-2">{d.deviceName || "Unknown Device"}</td>
+                      <td>
+                        {d.lastUsed
+                          ? new Date(d.lastUsed).toLocaleDateString("en-US", {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })
+                          : "Unknown"}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {userData.devices.map((d, i) => (
-                      <tr key={i} className="border-b border-gray-200 text-gray-600">
-                        <td className="py-2">{d.deviceName || d.device}</td>
-                        <td>{d.location || "Unknown"}</td>
-                        <td>
-                          {d.lastActive
-                            ? new Date(d.lastActive).toLocaleDateString("en-US", {
-                                year: "numeric",
-                                month: "short",
-                                day: "numeric",
-                              })
-                            : "Unknown"}
-                        </td>
-                        <td>
-                          <button className="text-red-500 hover:text-red-700 text-sm font-semibold">
-                            Revoke
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="text-right mt-3">
-                  <button className="text-blue-600 hover:text-blue-800 text-sm">
-                    Sign out all devices
-                  </button>
-                </div>
-              </>
+                  ))}
+                </tbody>
+              </table>
             ) : (
-              <p className="text-gray-500">No devices tracked.</p>
+              <p className="text-gray-500">No trusted devices.</p>
             )}
           </div>
         </div>
