@@ -82,6 +82,19 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
       },
+    ],
+
+    sharedLinks: [
+      {
+        linkId: String,
+        filename: String,
+        password: String,
+        expiresAt: Date,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+  },
+  { timestamps: true }
       timestamp: {
         type: Date,
         default: Date.now

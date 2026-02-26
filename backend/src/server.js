@@ -772,4 +772,162 @@ app.delete("/api/share/:userId/:linkId", authenticateToken, async (req, res) => 
 // SERVE UPLOADED FILES
 app.use("/uploads", express.static(uploadDir));
 
+// ------------------- FILE SHARING -------------------
+
+// CREATE SHARE LINK - PROTECTED
+app.post("/api/share/:userId/:filename", authenticateToken, async (req, res) => {
+  const { userId, filename } = req.params;
+  const { expiresIn, password } = req.body;
+
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Check if file exists in user's uploads
+    const file = user.uploads.find(f => f.filename === filename);
+    if (!file) return res.status(404).json({ error: "File not found" });
+
+    // Calculate expiration date
+    const expirationMs = {
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "30d": 30 * 24 * 60 * 60 * 1000,
+    };
+    const expiresAt = new Date(Date.now() + (expirationMs[expiresIn] || expirationMs["24h"]));
+
+    // Generate unique link ID
+    const linkId = nanoid(12);
+
+    // Hash password if provided
+    let hashedPassword = null;
+    if (password) {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
+    // Add share link to user's sharedLinks array
+    user.sharedLinks.push({
+      linkId,
+      filename,
+      password: hashedPassword,
+      expiresAt,
+      createdAt: new Date(),
+    });
+    await user.save();
+
+    res.json({
+      message: "Share link created",
+      linkId,
+      expiresAt,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create share link" });
+  }
+});
+
+// GET SHARED FILE INFO - PUBLIC
+app.get("/api/shared/:linkId", async (req, res) => {
+  const { linkId } = req.params;
+
+  try {
+    // Find the user with this share link
+    const user = await User.findOne({ "sharedLinks.linkId": linkId });
+    if (!user) return res.status(404).json({ error: "Share link not found" });
+
+    const shareLink = user.sharedLinks.find(sl => sl.linkId === linkId);
+    if (!shareLink) return res.status(404).json({ error: "Share link not found" });
+
+    // Check if expired
+    const expired = new Date() > new Date(shareLink.expiresAt);
+
+    // Get display name (remove timestamp prefix)
+    const displayName = shareLink.filename.replace(/^\d+-/, '');
+
+    res.json({
+      filename: displayName,
+      requiresPassword: !!shareLink.password,
+      expired,
+      expiresAt: shareLink.expiresAt,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get share info" });
+  }
+});
+
+// DOWNLOAD SHARED FILE - PUBLIC
+app.post("/api/shared/:linkId/download", async (req, res) => {
+  const { linkId } = req.params;
+  const { password } = req.body;
+
+  try {
+    // Find the user with this share link
+    const user = await User.findOne({ "sharedLinks.linkId": linkId });
+    if (!user) return res.status(404).json({ error: "Share link not found" });
+
+    const shareLink = user.sharedLinks.find(sl => sl.linkId === linkId);
+    if (!shareLink) return res.status(404).json({ error: "Share link not found" });
+
+    // Check if expired
+    if (new Date() > new Date(shareLink.expiresAt)) {
+      return res.status(410).json({ error: "Share link has expired" });
+    }
+
+    // Check password if required
+    if (shareLink.password) {
+      if (!password) {
+        return res.status(401).json({ error: "Password required" });
+      }
+      const match = await bcrypt.compare(password, shareLink.password);
+      if (!match) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+    }
+
+    // Serve the file
+    const filePath = path.join(uploadDir, shareLink.filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "File not found on server" });
+    }
+
+    // Get display name for download
+    const displayName = shareLink.filename.replace(/^\d+-/, '');
+    res.download(filePath, displayName);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to download file" });
+  }
+});
+
+// REVOKE SHARE LINK - PROTECTED
+app.delete("/api/share/:userId/:linkId", authenticateToken, async (req, res) => {
+  const { userId, linkId } = req.params;
+
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const linkIndex = user.sharedLinks.findIndex(sl => sl.linkId === linkId);
+    if (linkIndex === -1) {
+      return res.status(404).json({ error: "Share link not found" });
+    }
+
+    user.sharedLinks.splice(linkIndex, 1);
+    await user.save();
+
+    res.json({ message: "Share link revoked" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to revoke share link" });
+  }
+});
+
 app.listen(3000, () => console.log("Server running on port 3000"));
