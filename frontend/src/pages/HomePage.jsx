@@ -11,7 +11,6 @@ const HomePage = () => {
   // Helper function to clean filenames
   const getDisplayName = (filename) => {
     if (!filename) return '';
-    // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
     return filename.replace(/^\d+-/, '');
   };
 
@@ -79,7 +78,7 @@ const HomePage = () => {
   useEffect(() => {
     const userId = localStorage.getItem("userId");
     const token = localStorage.getItem("token");
-    
+
     if (!userId || !token) {
       navigate("/");
       return;
@@ -95,7 +94,6 @@ const HomePage = () => {
         setLoading(false);
       } catch (err) {
         console.error(err);
-        // fetchWithAuth will handle logout if token is invalid
         setLoading(false);
       }
     };
@@ -113,20 +111,20 @@ const HomePage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        Loading...
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500 text-lg">Loading...</p>
       </div>
     );
   }
 
   if (!userData) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-xl mb-4">Failed to load dashboard</p>
-          <button 
+          <p className="text-xl mb-4 text-gray-700">Failed to load dashboard</p>
+          <button
             onClick={() => navigate("/")}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            className="bg-purple-600 text-white px-5 py-2 rounded-lg hover:bg-purple-700 transition"
           >
             Return to Login
           </button>
@@ -141,31 +139,31 @@ const HomePage = () => {
   const storageLimitRounded = userData.storageLimit.toFixed(2);
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <Navbar onLogout={handleLogout} />
       <div className="max-w-7xl mx-auto py-10 px-6">
-        <h1 className="text-4xl font-bold text-center mb-10">
+        <h1 className="text-4xl font-bold text-center mb-10 text-purple-800">
           GuardFile Dashboard
         </h1>
 
         {/* Top Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           {/* Storage */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-3">Storage Usage</h2>
-            <p className="text-gray-600 mb-2">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold mb-3 text-purple-700">Storage Usage</h2>
+            <p className="text-gray-600 mb-2 text-sm">
               {storageUsedRounded} GB / {storageLimitRounded} GB (
               {(userData.storageLimit / 1024).toFixed(2)} TB)
             </p>
 
-            <div className="w-full bg-gray-200 rounded-full h-4 mb-2">
+            <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
               <div
-                className={`h-4 rounded-full transition-all duration-500 ${
+                className={`h-3 rounded-full transition-all duration-500 ${
                   storagePercent > 90
                     ? "bg-red-500"
                     : storagePercent > 70
                     ? "bg-yellow-500"
-                    : "bg-green-500"
+                    : "bg-purple-500"
                 }`}
                 style={{ width: `${storagePercent}%` }}
               ></div>
@@ -176,10 +174,14 @@ const HomePage = () => {
           </div>
 
           {/* Security Score */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-3">Security Score</h2>
-            <div className="text-5xl font-bold text-green-600 mb-2">
-              {userData.twoFactorEnabled ? "✔" : "⚠"}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold mb-3 text-purple-700">Security Score</h2>
+            <div className="text-5xl font-bold mb-2">
+              {userData.twoFactorEnabled ? (
+                <span className="text-green-500">✔</span>
+              ) : (
+                <span className="text-yellow-500">⚠</span>
+              )}
             </div>
             <p className="text-gray-600 text-sm">
               Your account is {userData.accountStatus || "Active"}.
@@ -188,30 +190,32 @@ const HomePage = () => {
           </div>
 
           {/* Account Quick Info */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-3">Account Status</h2>
-            <p>
-              <span className="font-medium text-gray-700">Status:</span>{" "}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold mb-3 text-purple-700">Account Status</h2>
+            <p className="mb-1">
+              <span className="font-medium text-gray-600">Status:</span>{" "}
               <span className="text-green-600 font-semibold">
                 {userData.accountStatus || "Active"}
               </span>
             </p>
-            <p>
-              <span className="font-medium text-gray-700">2FA Enabled:</span>{" "}
-              <span className="text-green-600 font-semibold">
+            <p className="mb-1">
+              <span className="font-medium text-gray-600">2FA Enabled:</span>{" "}
+              <span className={`font-semibold ${userData.twoFactorEnabled ? "text-green-600" : "text-red-500"}`}>
                 {userData.twoFactorEnabled ? "Yes" : "No"}
               </span>
             </p>
             <p>
-              <span className="font-medium text-gray-700">Joined:</span>{" "}
-              {userData?.createdAt
-                ? new Date(userData.createdAt).toLocaleDateString("en-US", {
-                    weekday: "short",
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })
-                : "Unknown"}
+              <span className="font-medium text-gray-600">Joined:</span>{" "}
+              <span className="text-gray-700">
+                {userData?.createdAt
+                  ? new Date(userData.createdAt).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })
+                  : "Unknown"}
+              </span>
             </p>
           </div>
         </div>
@@ -262,10 +266,10 @@ const HomePage = () => {
                 {userData.uploads.map((item, index) => (
                   <li
                     key={index}
-                    className="flex justify-between border-b border-gray-200 pb-2 text-gray-700"
+                    className="flex justify-between border-b border-gray-100 pb-2 text-gray-700"
                   >
                     <span>{getDisplayName(item.filename)}</span>
-                    <span className="text-gray-500 text-sm">
+                    <span className="text-gray-400 text-sm">
                       {item.uploadedAt
                         ? new Date(item.uploadedAt).toLocaleDateString("en-US", {
                             year: "numeric",
@@ -317,29 +321,29 @@ const HomePage = () => {
         </div>
 
         {/* Navigation Tiles */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 mt-10">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-10">
           <div
-            className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg cursor-pointer transition"
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500 hover:shadow-md hover:border-l-purple-700 cursor-pointer transition-all"
             onClick={() => handleNavigation("/settings")}
           >
-            <h2 className="text-xl font-semibold mb-2">Settings</h2>
-            <p className="text-gray-600">Configure account and security preferences.</p>
+            <h2 className="text-lg font-semibold mb-1 text-purple-700">Settings</h2>
+            <p className="text-gray-500 text-sm">Configure account and security preferences.</p>
           </div>
 
           <div
-            className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg cursor-pointer transition"
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500 hover:shadow-md hover:border-l-purple-700 cursor-pointer transition-all"
             onClick={() => handleNavigation("/upload")}
           >
-            <h2 className="text-xl font-semibold mb-2">Upload Files</h2>
-            <p className="text-gray-600">Securely upload new files to your storage.</p>
+            <h2 className="text-lg font-semibold mb-1 text-purple-700">Upload Files</h2>
+            <p className="text-gray-500 text-sm">Securely upload new files to your storage.</p>
           </div>
 
           <div
-            className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg cursor-pointer transition"
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500 hover:shadow-md hover:border-l-purple-700 cursor-pointer transition-all"
             onClick={() => handleNavigation("/manage")}
           >
-            <h2 className="text-xl font-semibold mb-2">Manage Files</h2>
-            <p className="text-gray-600">View, share, or delete stored files.</p>
+            <h2 className="text-lg font-semibold mb-1 text-purple-700">Manage Files</h2>
+            <p className="text-gray-500 text-sm">View, share, or delete stored files.</p>
           </div>
         </div>
       </div>

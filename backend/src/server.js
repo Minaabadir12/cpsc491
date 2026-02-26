@@ -241,11 +241,17 @@ app.patch("/api/users/:userId/password", authenticateToken, async (req, res) => 
 // UPLOAD FILES - PROTECTED
 app.post("/api/upload/:userId", authenticateToken, upload.array("files"), async (req, res) => {
   const { userId } = req.params;
-  
+  const { encryptionMode, encryptionPassword } = req.body;
+  const mode = encryptionMode || "none";
+
   if (req.user.userId !== userId) {
     return res.status(403).json({ error: "Unauthorized access" });
   }
-  
+
+  if (mode === "password" && !encryptionPassword) {
+    return res.status(400).json({ error: "Password required for password encryption" });
+  }
+
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -255,7 +261,41 @@ app.post("/api/upload/:userId", authenticateToken, upload.array("files"), async 
     
     req.files.forEach(file => {
       const fileSizeMB = file.size / 1024 / 1024;
-      user.uploads.push({ filename: file.filename, size: fileSizeMB, uploadedAt: new Date() });
+      let encryptionMeta = { encryptionMode: mode };
+
+      if (mode === "password") {
+        const fileBuffer = fs.readFileSync(filePath);
+        const salt = crypto.randomBytes(32);
+        const iv = crypto.randomBytes(12);
+        const key = crypto.pbkdf2Sync(encryptionPassword, salt, 100000, 32, "sha256");
+        const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+        const encrypted = Buffer.concat([cipher.update(fileBuffer), cipher.final()]);
+        const authTag = cipher.getAuthTag();
+        fs.writeFileSync(filePath, encrypted);
+
+        encryptionMeta.encryptionSalt = salt.toString("hex");
+        encryptionMeta.encryptionIV = iv.toString("hex");
+        encryptionMeta.encryptionTag = authTag.toString("hex");
+      } else if (mode === "passkey") {
+        const fileBuffer = fs.readFileSync(filePath);
+        const randomKey = crypto.randomBytes(32);
+        const iv = crypto.randomBytes(12);
+        const cipher = crypto.createCipheriv("aes-256-gcm", randomKey, iv);
+        const encrypted = Buffer.concat([cipher.update(fileBuffer), cipher.final()]);
+        const authTag = cipher.getAuthTag();
+        fs.writeFileSync(filePath, encrypted);
+
+        encryptionMeta.encryptionKey = randomKey.toString("hex");
+        encryptionMeta.encryptionIV = iv.toString("hex");
+        encryptionMeta.encryptionTag = authTag.toString("hex");
+      }
+
+      user.uploads.push({
+        filename: file.filename,
+        size: fileSizeMB,
+        uploadedAt: new Date(),
+        ...encryptionMeta,
+      });
       totalAddedSize += fileSizeMB;
       uploadedFiles.push(file.filename);
     });
@@ -777,7 +817,7 @@ app.use("/uploads", express.static(uploadDir));
 // CREATE SHARE LINK - PROTECTED
 app.post("/api/share/:userId/:filename", authenticateToken, async (req, res) => {
   const { userId, filename } = req.params;
-  const { expiresIn, password } = req.body;
+  const { expiresIn, password, encryptionPassword } = req.body;
 
   if (req.user.userId !== userId) {
     return res.status(403).json({ error: "Unauthorized access" });
@@ -790,6 +830,36 @@ app.post("/api/share/:userId/:filename", authenticateToken, async (req, res) => 
     // Check if file exists in user's uploads
     const file = user.uploads.find(f => f.filename === filename);
     if (!file) return res.status(404).json({ error: "File not found" });
+
+    // Handle encrypted file sharing
+    let decryptionKey = null;
+    if (file.encryptionMode === "password") {
+      if (!encryptionPassword) {
+        return res.status(400).json({ error: "Encryption password required to share this file" });
+      }
+      // Verify the encryption password by attempting to derive the key and test decryption
+      const filePath = path.join(uploadDir, filename);
+      const encryptedData = fs.readFileSync(filePath);
+      const salt = Buffer.from(file.encryptionSalt, "hex");
+      const iv = Buffer.from(file.encryptionIV, "hex");
+      const authTag = Buffer.from(file.encryptionTag, "hex");
+      const key = crypto.pbkdf2Sync(encryptionPassword, salt, 100000, 32, "sha256");
+
+      try {
+        const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+        decipher.setAuthTag(authTag);
+        decipher.update(encryptedData);
+        decipher.final(); // will throw if password is wrong
+      } catch (decryptErr) {
+        return res.status(401).json({ error: "Incorrect encryption password" });
+      }
+
+      // Store the derived key so the share download can decrypt
+      decryptionKey = key.toString("hex");
+    } else if (file.encryptionMode === "passkey") {
+      // For passkey encryption, the key is already stored in the DB
+      decryptionKey = file.encryptionKey;
+    }
 
     // Calculate expiration date
     const expirationMs = {
@@ -815,8 +885,12 @@ app.post("/api/share/:userId/:filename", authenticateToken, async (req, res) => 
       password: hashedPassword,
       expiresAt,
       createdAt: new Date(),
+      decryptionKey,
     });
     await user.save();
+
+    // Log share activity
+    await logActivity(userId, 'share', filename, { linkId, expiresAt });
 
     res.json({
       message: "Share link created",
@@ -894,8 +968,36 @@ app.post("/api/shared/:linkId/download", async (req, res) => {
       return res.status(404).json({ error: "File not found on server" });
     }
 
+    // Log download activity (note: this logs for the file owner, not the downloader)
+    await logActivity(user._id.toString(), 'download', shareLink.filename, { via: 'share-link', linkId });
+
     // Get display name for download
     const displayName = shareLink.filename.replace(/^\d+-/, '');
+
+    // If the file is encrypted and we have a decryption key, decrypt on the fly
+    if (shareLink.decryptionKey) {
+      const file = user.uploads.find(f => f.filename === shareLink.filename);
+      if (file && file.encryptionIV && file.encryptionTag) {
+        const encryptedData = fs.readFileSync(filePath);
+        const key = Buffer.from(shareLink.decryptionKey, "hex");
+        const iv = Buffer.from(file.encryptionIV, "hex");
+        const authTag = Buffer.from(file.encryptionTag, "hex");
+
+        try {
+          const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+          decipher.setAuthTag(authTag);
+          const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+
+          res.setHeader("Content-Disposition", `attachment; filename="${displayName}"`);
+          res.setHeader("Content-Type", "application/octet-stream");
+          return res.send(decrypted);
+        } catch (decryptErr) {
+          console.error("Share decryption failed:", decryptErr);
+          return res.status(500).json({ error: "Failed to decrypt file for sharing" });
+        }
+      }
+    }
+
     res.download(filePath, displayName);
   } catch (err) {
     console.error(err);
@@ -929,5 +1031,100 @@ app.delete("/api/share/:userId/:linkId", authenticateToken, async (req, res) => 
     res.status(500).json({ error: "Failed to revoke share link" });
   }
 });
+
+// DOWNLOAD FILE (handles encrypted files) - PROTECTED
+app.post("/api/download/:userId/:filename", authenticateToken, async (req, res) => {
+  const { userId, filename } = req.params;
+  const { password, webauthnVerified } = req.body;
+
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const file = user.uploads.find(f => f.filename === filename);
+    if (!file) return res.status(404).json({ error: "File not found" });
+
+    const filePath = path.join(uploadDir, filename);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk" });
+
+    const displayName = filename.replace(/^\d+-/, "");
+
+    if (!file.encryptionMode || file.encryptionMode === "none") {
+      return res.download(filePath, displayName);
+    }
+
+    // Determine MIME type from file extension
+    const ext = path.extname(displayName).toLowerCase();
+    const mimeTypes = {
+      ".pdf": "application/pdf",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".svg": "image/svg+xml",
+      ".txt": "text/plain",
+      ".html": "text/html",
+    };
+    const contentType = mimeTypes[ext] || "application/octet-stream";
+    const isViewable = ext in mimeTypes;
+    const disposition = isViewable ? "inline" : "attachment";
+
+    if (file.encryptionMode === "password") {
+      if (!password) return res.status(400).json({ error: "Password required to decrypt" });
+
+      const encryptedData = fs.readFileSync(filePath);
+      const salt = Buffer.from(file.encryptionSalt, "hex");
+      const iv = Buffer.from(file.encryptionIV, "hex");
+      const authTag = Buffer.from(file.encryptionTag, "hex");
+      const key = crypto.pbkdf2Sync(password, salt, 100000, 32, "sha256");
+
+      try {
+        const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+        decipher.setAuthTag(authTag);
+        const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+
+        res.setHeader("Content-Disposition", `${disposition}; filename="${displayName}"`);
+        res.setHeader("Content-Type", contentType);
+        await logActivity(userId, "download", filename);
+        return res.send(decrypted);
+      } catch (decryptErr) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+    }
+
+    if (file.encryptionMode === "passkey") {
+      if (!webauthnVerified) {
+        return res.status(403).json({ error: "Passkey authentication required", requiresPasskey: true });
+      }
+
+      const encryptedData = fs.readFileSync(filePath);
+      const key = Buffer.from(file.encryptionKey, "hex");
+      const iv = Buffer.from(file.encryptionIV, "hex");
+      const authTag = Buffer.from(file.encryptionTag, "hex");
+
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(authTag);
+      const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+
+      res.setHeader("Content-Disposition", `${disposition}; filename="${displayName}"`);
+      res.setHeader("Content-Type", contentType);
+      await logActivity(userId, "download", filename);
+      return res.send(decrypted);
+    }
+
+    return res.status(400).json({ error: "Unknown encryption mode" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Download failed" });
+  }
+});
+
+// SERVE UPLOADED FILES (unencrypted files only - encrypted files served via /api/download)
+app.use("/uploads", express.static(uploadDir));
 
 app.listen(3000, () => console.log("Server running on port 3000"));

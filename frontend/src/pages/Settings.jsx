@@ -2,6 +2,7 @@ import { startRegistration, startAuthentication } from "@simplewebauthn/browser"
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchWithAuth, logout } from "../utils/api";
+import Navbar from "../Components/Navbar";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -432,7 +433,8 @@ const Settings = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
       <div className="max-w-5xl mx-auto py-10 px-6">
         <div className="flex justify-end mb-4">
           <button onClick={() => navigate("/home")} className="btn btn-outline btn-accent">

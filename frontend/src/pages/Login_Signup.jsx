@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { startAuthentication } from "@simplewebauthn/browser";
 import "./LoginPage.css";
 import { getOrCreateDeviceToken, getDeviceInfo } from "../utils/deviceFingerprint";
 
 import user_icon from "../Components/Assets/person.png";
 import email_icon from "../Components/Assets/email.png";
 import password_icon from "../Components/Assets/password.png";
+import GuardFileLogo from "../Components/GuardFileLogo";
 
 const LoginPage = () => {
   const [action, setAction] = useState("Sign Up");
@@ -24,7 +26,73 @@ const LoginPage = () => {
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
 
+  // Device verification states
+  const [showVerification, setShowVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [loginData, setLoginData] = useState(null);
+
+  // 2FA states
+  const [showTwoFactor, setShowTwoFactor] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [enabledMethods, setEnabledMethods] = useState([]);
+  const [selectedMethod, setSelectedMethod] = useState(null);
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+
+  // Passkey login state
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+
   const navigate = useNavigate();
+
+  const handlePasskeyLogin = async () => {
+    if (!email) {
+      alert("Please enter your email first.");
+      return;
+    }
+    setPasskeyLoading(true);
+    try {
+      // 1. Get authentication options
+      const optRes = await fetch("http://localhost:3000/webauthn/login/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const optData = await optRes.json();
+      if (!optRes.ok) throw new Error(optData.error || "Failed to get passkey options");
+
+      const userId = optData.userId;
+      const { userId: _uid, ...authOptions } = optData;
+
+      // 2. Trigger browser biometric prompt
+      let asseResp;
+      try {
+        asseResp = await startAuthentication({ optionsJSON: authOptions });
+      } catch (authErr) {
+        asseResp = await startAuthentication(authOptions);
+      }
+
+      // 3. Verify with backend
+      const verRes = await fetch("http://localhost:3000/webauthn/login/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: String(userId), asseResp }),
+      });
+      const verData = await verRes.json();
+      if (!verRes.ok) throw new Error(verData.error || "Passkey verification failed");
+
+      // 4. Store credentials and navigate
+      localStorage.setItem("token", verData.token);
+      localStorage.setItem("userId", String(verData.userId));
+      localStorage.setItem("username", verData.username);
+      navigate("/home");
+    } catch (err) {
+      console.error(err);
+      alert("Passkey login failed: " + err.message);
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     // Basic required field validation
@@ -339,7 +407,7 @@ const LoginPage = () => {
   // Regular login/signup screen
   return (
     <div className="title">
-      <h1>GuardFile</h1>
+      <GuardFileLogo size={90} />
 
       <div className="container">
         <div className="header">
@@ -350,7 +418,7 @@ const LoginPage = () => {
         <div className="inputs">
           {action === "Sign Up" && (
             <div className="input">
-              <img src={user_icon} width={25} height={25} alt="User" />
+              <img src={user_icon} alt="" />
               <input
                 type="text"
                 placeholder="Username"
@@ -361,7 +429,7 @@ const LoginPage = () => {
           )}
 
           <div className="input">
-            <img src={email_icon} width={25} height={25} alt="Email" />
+            <img src={email_icon} alt="" />
             <input
               type="email"
               placeholder="Email"
@@ -371,7 +439,7 @@ const LoginPage = () => {
           </div>
 
           <div className="input">
-            <img src={password_icon} width={25} height={25} alt="Password" />
+            <img src={password_icon} alt="" />
             <input
               type="password"
               placeholder="Password"
@@ -380,49 +448,48 @@ const LoginPage = () => {
             />
           </div>
 
-          {/* Confirm Password for Sign Up */}
           {action === "Sign Up" && (
-            <div className="input">
-              <img src={password_icon} width={25} height={25} alt="Confirm Password" />
-              <input
-                type="password"
-                placeholder="Confirm Password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-              {/* Real-time password match feedback */}
+            <>
+              <div className="input">
+                <img src={password_icon} alt="" />
+                <input
+                  type="password"
+                  placeholder="Confirm Password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
               {confirmPassword && (
                 <p
                   style={{
-                    color: password === confirmPassword ? "green" : "red",
-                    fontSize: "0.8rem",
-                    marginTop: "0.2rem",
+                    color: password === confirmPassword ? "#22c55e" : "#ef4444",
+                    fontSize: "13px",
+                    marginTop: "-6px",
+                    textAlign: "left",
+                    fontWeight: 500,
                   }}
                 >
                   {password === confirmPassword
-                    ? "Passwords match"
-                    : "Passwords do not match"}
+                    ? "\u2713 Passwords match"
+                    : "\u2717 Passwords do not match"}
                 </p>
               )}
-            </div>
+            </>
           )}
         </div>
 
         {action === "Login" && (
           <div className="forgot-password">
             Lost password?{" "}
-            <span
-              style={{ cursor: "pointer", color: "blue" }}
-              onClick={() => navigate("/resetpassword")}
-            >
-              click here
+            <span onClick={() => navigate("/resetpassword")}>
+              Click here
             </span>
           </div>
         )}
 
         <div className="submit-container">
           <div className="submit" onClick={handleSubmit}>
-            {action}
+            {action === "Login" ? "Log In" : "Create Account"}
           </div>
 
           <div
@@ -431,9 +498,40 @@ const LoginPage = () => {
               setAction(action === "Login" ? "Sign Up" : "Login")
             }
           >
-            {action === "Login" ? "Switch to Sign Up" : "Switch to Login"}
+            {action === "Login" ? "Sign Up" : "Log In"}
           </div>
         </div>
+
+        {action === "Login" && (
+          <div style={{ width: "100%", marginTop: "8px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                margin: "12px 0",
+              }}
+            >
+              <div style={{ flex: 1, height: "1px", background: "#ddd" }} />
+              <span style={{ color: "#999", fontSize: "13px" }}>or</span>
+              <div style={{ flex: 1, height: "1px", background: "#ddd" }} />
+            </div>
+            <div
+              className="submit"
+              onClick={passkeyLoading ? null : handlePasskeyLogin}
+              style={{
+                width: "100%",
+                background: passkeyLoading
+                  ? "#ccc"
+                  : "linear-gradient(135deg, #7c3aed 0%, #4c00b4 100%)",
+                cursor: passkeyLoading ? "not-allowed" : "pointer",
+                opacity: passkeyLoading ? 0.7 : 1,
+              }}
+            >
+              {passkeyLoading ? "Authenticating..." : "Login with Passkey"}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
