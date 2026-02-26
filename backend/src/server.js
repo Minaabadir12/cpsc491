@@ -119,22 +119,12 @@ app.post("/login", async (req, res) => {
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
-    // Check if any 2FA method is enabled
-    const methods = user.twoFactorMethods || {};
-    const enabledMethods = [];
-    if (methods.totp?.enabled || (user.twoFactorEnabled && user.twoFactorSecret)) {
-      enabledMethods.push("totp");
-    }
-    if (methods.email?.enabled) {
-      enabledMethods.push("email");
-    }
-
-    if (enabledMethods.length > 0) {
+    // Check if 2FA is enabled
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
       return res.json({
         requiresTwoFactor: true,
         message: "2FA verification required",
         email: user.email,
-        enabledMethods,
       });
     }
 
@@ -268,9 +258,8 @@ app.post("/api/upload/:userId", authenticateToken, upload.array("files"), async 
 
     let totalAddedSize = 0;
     const uploadedFiles = [];
-
-    for (const file of req.files) {
-      const filePath = path.join(uploadDir, file.filename);
+    
+    req.files.forEach(file => {
       const fileSizeMB = file.size / 1024 / 1024;
       let encryptionMeta = { encryptionMode: mode };
 
@@ -309,7 +298,7 @@ app.post("/api/upload/:userId", authenticateToken, upload.array("files"), async 
       });
       totalAddedSize += fileSizeMB;
       uploadedFiles.push(file.filename);
-    }
+    });
 
     user.storageUsed += totalAddedSize;
     await user.save();
@@ -565,9 +554,6 @@ app.post("/api/2fa/verify-setup/:userId", authenticateToken, async (req, res) =>
     // Save secret and enable 2FA
     user.twoFactorSecret = secret;
     user.twoFactorEnabled = true;
-    if (!user.twoFactorMethods) user.twoFactorMethods = {};
-    user.twoFactorMethods.totp = { enabled: true, secret: secret };
-    user.markModified("twoFactorMethods");
     await user.save();
 
     res.json({ message: "2FA enabled successfully" });
@@ -600,168 +586,21 @@ app.post("/api/2fa/disable/:userId", authenticateToken, async (req, res) => {
       return res.status(401).json({ error: "Incorrect password" });
     }
 
-    // Clear TOTP 2FA settings
+    // Clear 2FA settings
     user.twoFactorSecret = null;
     user.twoFactorEnabled = false;
-    if (!user.twoFactorMethods) user.twoFactorMethods = {};
-    user.twoFactorMethods.totp = { enabled: false, secret: null };
-    // Check if any other method is still enabled
-    const emailEnabled = user.twoFactorMethods.email?.enabled || false;
-    if (emailEnabled) {
-      user.twoFactorEnabled = true;
-    }
-    user.markModified("twoFactorMethods");
     await user.save();
 
-    res.json({ message: "TOTP 2FA disabled successfully" });
+    res.json({ message: "2FA disabled successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to disable 2FA" });
   }
 });
 
-// ------------------- EMAIL 2FA -------------------
-
-// SETUP EMAIL 2FA - Send verification code to email
-app.post("/api/2fa/email/setup/:userId", authenticateToken, async (req, res) => {
-  const { userId } = req.params;
-
-  if (req.user.userId !== userId) {
-    return res.status(403).json({ error: "Unauthorized access" });
-  }
-
-  try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    // Generate 6-digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Store code with 10 min expiry
-    user.twoFactorCode = code;
-    user.twoFactorCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
-    user.twoFactorCodeMethod = "setup-email";
-    await user.save();
-
-    // Send email
-    const transporter = nodemailer.createTransport({
-      service: "Gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
-
-    await transporter.sendMail({
-      from: `GuardFile <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject: "Enable Email 2FA - GuardFile",
-      html: `
-        <p>Hello <b>${user.username}</b>,</p>
-        <p>You are enabling Email Two-Factor Authentication.</p>
-        <p>Your verification code is:</p>
-        <h2 style="background: #f0f0f0; padding: 15px; text-align: center; letter-spacing: 5px; font-family: monospace;">${code}</h2>
-        <p>This code expires in 10 minutes.</p>
-      `,
-    });
-
-    res.json({ message: "Verification code sent to your email" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to send verification code" });
-  }
-});
-
-// VERIFY EMAIL 2FA SETUP
-app.post("/api/2fa/email/verify-setup/:userId", authenticateToken, async (req, res) => {
-  const { userId } = req.params;
-  const { code } = req.body;
-
-  if (req.user.userId !== userId) {
-    return res.status(403).json({ error: "Unauthorized access" });
-  }
-
-  if (!code) {
-    return res.status(400).json({ error: "Verification code is required" });
-  }
-
-  try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    // Check code
-    if (!user.twoFactorCode || !user.twoFactorCodeExpires) {
-      return res.status(400).json({ error: "No verification code found. Please request a new one." });
-    }
-
-    if (new Date() > new Date(user.twoFactorCodeExpires)) {
-      return res.status(400).json({ error: "Code expired. Please request a new one." });
-    }
-
-    if (user.twoFactorCode !== code) {
-      return res.status(400).json({ error: "Invalid verification code" });
-    }
-
-    // Enable email 2FA
-    if (!user.twoFactorMethods) user.twoFactorMethods = {};
-    user.twoFactorMethods.email = { enabled: true };
-    user.twoFactorEnabled = true;
-    user.twoFactorCode = null;
-    user.twoFactorCodeExpires = null;
-    user.twoFactorCodeMethod = null;
-    user.markModified("twoFactorMethods");
-    await user.save();
-
-    res.json({ message: "Email 2FA enabled successfully" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to verify email 2FA setup" });
-  }
-});
-
-// DISABLE EMAIL 2FA
-app.post("/api/2fa/email/disable/:userId", authenticateToken, async (req, res) => {
-  const { userId } = req.params;
-  const { password } = req.body;
-
-  if (req.user.userId !== userId) {
-    return res.status(403).json({ error: "Unauthorized access" });
-  }
-
-  if (!password) {
-    return res.status(400).json({ error: "Password is required to disable 2FA" });
-  }
-
-  try {
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) {
-      return res.status(401).json({ error: "Incorrect password" });
-    }
-
-    // Disable email 2FA
-    if (!user.twoFactorMethods) user.twoFactorMethods = {};
-    user.twoFactorMethods.email = { enabled: false };
-    // Check if TOTP is still enabled
-    const totpEnabled = user.twoFactorMethods.totp?.enabled || false;
-    if (!totpEnabled) {
-      user.twoFactorEnabled = false;
-    }
-    user.markModified("twoFactorMethods");
-    await user.save();
-
-    res.json({ message: "Email 2FA disabled successfully" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to disable email 2FA" });
-  }
-});
-
-// VERIFY 2FA DURING LOGIN (supports totp and email methods)
+// VERIFY 2FA DURING LOGIN
 app.post("/login/verify-2fa", async (req, res) => {
-  const { email, twoFactorToken, method } = req.body;
+  const { email, twoFactorToken } = req.body;
 
   if (!email || !twoFactorToken) {
     return res.status(400).json({ error: "Email and 2FA code are required" });
@@ -771,40 +610,20 @@ app.post("/login/verify-2fa", async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-    const selectedMethod = method || "totp";
-    let verified = false;
-
-    if (selectedMethod === "totp") {
-      if (!user.twoFactorSecret) {
-        return res.status(400).json({ error: "TOTP is not enabled" });
-      }
-      verified = speakeasy.totp.verify({
-        secret: user.twoFactorSecret,
-        encoding: "base32",
-        token: twoFactorToken,
-        window: 1,
-      });
-    } else if (selectedMethod === "email") {
-      // Verify against stored email code
-      if (!user.twoFactorCode || !user.twoFactorCodeExpires) {
-        return res.status(400).json({ error: "No email code sent. Please request a code first." });
-      }
-      if (new Date() > new Date(user.twoFactorCodeExpires)) {
-        return res.status(400).json({ error: "Code expired. Please request a new code." });
-      }
-      verified = user.twoFactorCode === twoFactorToken;
+    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+      return res.status(400).json({ error: "2FA is not enabled for this account" });
     }
+
+    // Verify the 2FA token
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: "base32",
+      token: twoFactorToken,
+      window: 1,
+    });
 
     if (!verified) {
       return res.status(401).json({ error: "Invalid 2FA code" });
-    }
-
-    // Clear email code after successful verification
-    if (selectedMethod === "email") {
-      user.twoFactorCode = null;
-      user.twoFactorCodeExpires = null;
-      user.twoFactorCodeMethod = null;
-      await user.save();
     }
 
     // Create JWT token
@@ -826,64 +645,172 @@ app.post("/login/verify-2fa", async (req, res) => {
   }
 });
 
-// SEND 2FA CODE VIA EMAIL (during login)
-app.post("/login/send-2fa-code", async (req, res) => {
-  const { email, method } = req.body;
+// ------------------- FILE SHARING -------------------
 
-  if (!email || !method) {
-    return res.status(400).json({ error: "Email and method are required" });
-  }
+// CREATE SHARE LINK - PROTECTED
+app.post("/api/share/:userId/:filename", authenticateToken, async (req, res) => {
+  const { userId, filename } = req.params;
+  const { expiresIn, password } = req.body;
 
-  if (method !== "email") {
-    return res.status(400).json({ error: "Only email method is supported" });
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
   }
 
   try {
-    const user = await User.findOne({ email });
+    const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    const methods = user.twoFactorMethods || {};
-    if (!methods.email?.enabled) {
-      return res.status(400).json({ error: "Email 2FA is not enabled" });
+    // Check if file exists in user's uploads
+    const file = user.uploads.find(f => f.filename === filename);
+    if (!file) return res.status(404).json({ error: "File not found" });
+
+    // Calculate expiration date
+    const expirationMs = {
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "30d": 30 * 24 * 60 * 60 * 1000,
+    };
+    const expiresAt = new Date(Date.now() + (expirationMs[expiresIn] || expirationMs["24h"]));
+
+    // Generate unique link ID
+    const linkId = nanoid(12);
+
+    // Hash password if provided
+    let hashedPassword = null;
+    if (password) {
+      hashedPassword = await bcrypt.hash(password, 10);
     }
 
-    // Generate 6-digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Store code with 10 min expiry
-    user.twoFactorCode = code;
-    user.twoFactorCodeExpires = new Date(Date.now() + 10 * 60 * 1000);
-    user.twoFactorCodeMethod = "email";
+    // Add share link to user's sharedLinks array
+    user.sharedLinks.push({
+      linkId,
+      filename,
+      password: hashedPassword,
+      expiresAt,
+      createdAt: new Date(),
+    });
     await user.save();
 
-    // Send email
-    const transporter = nodemailer.createTransport({
-      service: "Gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    // Log share activity
+    await logActivity(userId, 'share', filename, { linkId, expiresAt });
 
-    await transporter.sendMail({
-      from: `GuardFile <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject: "Your GuardFile Verification Code",
-      html: `
-        <p>Hello <b>${user.username}</b>,</p>
-        <p>Your verification code is:</p>
-        <h2 style="background: #f0f0f0; padding: 15px; text-align: center; letter-spacing: 5px; font-family: monospace;">${code}</h2>
-        <p>This code expires in 10 minutes.</p>
-        <p>If you didn't request this code, please ignore this email.</p>
-      `,
+    res.json({
+      message: "Share link created",
+      linkId,
+      expiresAt,
     });
-
-    res.json({ message: "Verification code sent to your email" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to send verification code" });
+    res.status(500).json({ error: "Failed to create share link" });
   }
 });
+
+// GET SHARED FILE INFO - PUBLIC
+app.get("/api/shared/:linkId", async (req, res) => {
+  const { linkId } = req.params;
+
+  try {
+    // Find the user with this share link
+    const user = await User.findOne({ "sharedLinks.linkId": linkId });
+    if (!user) return res.status(404).json({ error: "Share link not found" });
+
+    const shareLink = user.sharedLinks.find(sl => sl.linkId === linkId);
+    if (!shareLink) return res.status(404).json({ error: "Share link not found" });
+
+    // Check if expired
+    const expired = new Date() > new Date(shareLink.expiresAt);
+
+    // Get display name (remove timestamp prefix)
+    const displayName = shareLink.filename.replace(/^\d+-/, '');
+
+    res.json({
+      filename: displayName,
+      requiresPassword: !!shareLink.password,
+      expired,
+      expiresAt: shareLink.expiresAt,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get share info" });
+  }
+});
+
+// DOWNLOAD SHARED FILE - PUBLIC
+app.post("/api/shared/:linkId/download", async (req, res) => {
+  const { linkId } = req.params;
+  const { password } = req.body;
+
+  try {
+    // Find the user with this share link
+    const user = await User.findOne({ "sharedLinks.linkId": linkId });
+    if (!user) return res.status(404).json({ error: "Share link not found" });
+
+    const shareLink = user.sharedLinks.find(sl => sl.linkId === linkId);
+    if (!shareLink) return res.status(404).json({ error: "Share link not found" });
+
+    // Check if expired
+    if (new Date() > new Date(shareLink.expiresAt)) {
+      return res.status(410).json({ error: "Share link has expired" });
+    }
+
+    // Check password if required
+    if (shareLink.password) {
+      if (!password) {
+        return res.status(401).json({ error: "Password required" });
+      }
+      const match = await bcrypt.compare(password, shareLink.password);
+      if (!match) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+    }
+
+    // Serve the file
+    const filePath = path.join(uploadDir, shareLink.filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "File not found on server" });
+    }
+
+    // Log download activity (note: this logs for the file owner, not the downloader)
+    await logActivity(user._id.toString(), 'download', shareLink.filename, { via: 'share-link', linkId });
+
+    // Get display name for download
+    const displayName = shareLink.filename.replace(/^\d+-/, '');
+    res.download(filePath, displayName);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to download file" });
+  }
+});
+
+// REVOKE SHARE LINK - PROTECTED
+app.delete("/api/share/:userId/:linkId", authenticateToken, async (req, res) => {
+  const { userId, linkId } = req.params;
+
+  if (req.user.userId !== userId) {
+    return res.status(403).json({ error: "Unauthorized access" });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const linkIndex = user.sharedLinks.findIndex(sl => sl.linkId === linkId);
+    if (linkIndex === -1) {
+      return res.status(404).json({ error: "Share link not found" });
+    }
+
+    user.sharedLinks.splice(linkIndex, 1);
+    await user.save();
+
+    res.json({ message: "Share link revoked" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to revoke share link" });
+  }
+});
+
+// SERVE UPLOADED FILES
+app.use("/uploads", express.static(uploadDir));
 
 // ------------------- FILE SHARING -------------------
 

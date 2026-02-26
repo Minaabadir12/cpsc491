@@ -9,32 +9,12 @@ const userSchema = new mongoose.Schema({
   storageLimit: { type: Number, default: 1000 },
   twoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String, default: null },
-  // Multi-method 2FA
-  twoFactorMethods: {
-    totp: {
-      enabled: { type: Boolean, default: false },
-      secret: { type: String, default: null },
-    },
-    email: {
-      enabled: { type: Boolean, default: false },
-    },
-  },
-  // Temporary verification code (for email 2FA)
-  twoFactorCode: { type: String, default: null },
-  twoFactorCodeExpires: { type: Date, default: null },
-  twoFactorCodeMethod: { type: String, default: null },
   accountStatus: { type: String, default: "Active" },
   uploads: [
     {
       filename: String,
       size: Number,
       uploadedAt: { type: Date, default: Date.now },
-      // File encryption
-      encryptionMode: { type: String, enum: ["none", "password", "passkey"], default: "none" },
-      encryptionSalt: { type: String, default: null },  // hex PBKDF2 salt (password mode)
-      encryptionIV: { type: String, default: null },     // hex AES-GCM IV
-      encryptionTag: { type: String, default: null },    // hex AES-GCM auth tag
-      encryptionKey: { type: String, default: null },    // hex random AES key (passkey mode only)
     },
   ],
   devices: [
@@ -73,7 +53,6 @@ const userSchema = new mongoose.Schema({
       password: String,
       expiresAt: Date,
       createdAt: { type: Date, default: Date.now },
-      decryptionKey: { type: String, default: null }, // hex AES key for sharing encrypted files
     },
   ],
   // =========================
@@ -103,6 +82,19 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true
       },
+    ],
+
+    sharedLinks: [
+      {
+        linkId: String,
+        filename: String,
+        password: String,
+        expiresAt: Date,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+  },
+  { timestamps: true }
       timestamp: {
         type: Date,
         default: Date.now
