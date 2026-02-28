@@ -1,5 +1,6 @@
 // src/routes/webauthn.js
 import express from "express";
+import jwt from "jsonwebtoken";
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -13,6 +14,10 @@ const router = express.Router();
 const rpName = process.env.RP_NAME || "GuardFile";
 const rpID = process.env.RP_ID || "localhost";
 const origin = process.env.ORIGIN || "http://localhost:5173";
+// Read JWT_SECRET lazily (at request time) because dotenv.config() runs after this module loads
+function getJwtSecret() {
+  return process.env.JWT_SECRET || "your-secret-key-CHANGE-THIS-IN-PRODUCTION";
+}
 
 /* =========================================================================
    BASE64URL HELPERS (safe for Mongo Buffer objects too)
@@ -93,10 +98,19 @@ router.get("/webauthn/status/:userId", async (req, res) => {
       .map((c) => ({
         id: getStoredCredIdString(c),
         pk: getStoredPubKeyString(c),
+        transports: c.transports || [],
+        createdAt: c.createdAt || null,
       }))
       .filter((c) => c.id && c.pk);
 
-    res.json({ hasPasskey: creds.length > 0 });
+    res.json({
+      hasPasskey: creds.length > 0,
+      credentials: creds.map((c) => ({
+        id: c.id.substring(0, 8),
+        transports: c.transports,
+        createdAt: c.createdAt,
+      })),
+    });
   } catch (e) {
     res.status(500).json({ error: "Server error" });
   }
@@ -219,13 +233,15 @@ router.post("/webauthn/register/verify", async (req, res) => {
   }
 });
 
-// ✅ 3) Start login: get options
+// ✅ 3) Start login: get options (accepts email or userId)
 router.post("/webauthn/login/options", async (req, res) => {
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  const { email, userId } = req.body;
+  if (!email && !userId) return res.status(400).json({ error: "Missing email or userId" });
 
   try {
-    const user = await User.findById(userId).select("webauthnCredentials currentChallenge");
+    const user = email
+      ? await User.findOne({ email }).select("webauthnCredentials currentChallenge")
+      : await User.findById(userId).select("webauthnCredentials currentChallenge");
     if (!user) return res.status(404).json({ error: "User not found" });
 
     if (!Array.isArray(user.webauthnCredentials)) user.webauthnCredentials = [];
@@ -257,7 +273,7 @@ router.post("/webauthn/login/options", async (req, res) => {
     user.currentChallenge = options.challenge;
     await user.save();
 
-    res.json(options);
+    res.json({ ...options, userId: user._id });
   } catch (e) {
     console.error("login/options error:", e);
     res.status(500).json({ error: "Server error" });
@@ -270,7 +286,7 @@ router.post("/webauthn/login/verify", async (req, res) => {
   if (!userId || !asseResp) return res.status(400).json({ error: "Missing userId or asseResp" });
 
   try {
-    const user = await User.findById(userId).select("webauthnCredentials currentChallenge");
+    const user = await User.findById(userId).select("webauthnCredentials currentChallenge username");
     if (!user) return res.status(404).json({ error: "User not found" });
     if (!user.currentChallenge) return res.status(400).json({ error: "No challenge found. Restart login." });
 
@@ -283,8 +299,6 @@ router.post("/webauthn/login/verify", async (req, res) => {
 
     const credIdStr = getStoredCredIdString(cred);
     const pubKeyStr = getStoredPubKeyString(cred);
-
-    const credentialIDBuf = fromBase64URL(credIdStr);
     const credentialPublicKeyBuf = fromBase64URL(pubKeyStr);
 
     if (!pubKeyStr || credentialPublicKeyBuf.length === 0) {
@@ -303,7 +317,7 @@ router.post("/webauthn/login/verify", async (req, res) => {
       expectedOrigin: origin,
       expectedRPID: rpID,
       credential: {
-        id: credentialIDBuf,
+        id: credIdStr,
         publicKey: credentialPublicKeyBuf,
         counter: Number(cred.counter) || 0,
       },
@@ -317,11 +331,24 @@ router.post("/webauthn/login/verify", async (req, res) => {
     if (authenticationInfo?.newCounter !== undefined) {
       cred.counter = authenticationInfo.newCounter;
     }
-    
+
     user.currentChallenge = null;
     await user.save();
 
-    res.json({ message: "Passkey login verified", verified: true });
+    // Generate JWT token for passkey login
+    const token = jwt.sign(
+      { userId: user._id, username: user.username },
+      getJwtSecret(),
+      { expiresIn: '10m' }
+    );
+
+    res.json({
+      message: "Passkey login verified",
+      verified: true,
+      token,
+      userId: user._id,
+      username: user.username,
+    });
   } catch (e) {
     console.error("login/verify error:", e);
     res.status(500).json({ error: "Server error" });
@@ -400,8 +427,6 @@ router.post("/webauthn/delete/verify", async (req, res) => {
 
     const credIdStr = getStoredCredIdString(cred);
     const pubKeyStr = getStoredPubKeyString(cred);
-
-    const credentialIDBuf = fromBase64URL(credIdStr);
     const credentialPublicKeyBuf = fromBase64URL(pubKeyStr);
 
     if (!pubKeyStr || credentialPublicKeyBuf.length === 0) {
@@ -426,7 +451,7 @@ router.post("/webauthn/delete/verify", async (req, res) => {
       expectedOrigin: origin,
       expectedRPID: rpID,
       credential: {
-        id: credentialIDBuf,
+        id: credIdStr,
         publicKey: credentialPublicKeyBuf,
         counter: Number(cred.counter) || 0,
       },

@@ -1,33 +1,42 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import GuardFileLogo from './GuardFileLogo';
 
 const Navbar = () => {
   const navigate = useNavigate();
-
-  // ✅ Get the username from localStorage
   const username = localStorage.getItem('username');
 
   const handleLogout = () => {
-    // Clear user info on logout
     localStorage.removeItem('userId');
     localStorage.removeItem('username');
-
-    // Redirect to login page
     navigate('/');
   };
 
   return (
-    <header className="bg-base-300 border-b border-base-content/10">
-      <div className="mx-auto max-w-6xl p-4">
+    <header className="bg-white border-b border-gray-200 shadow-sm">
+      <div className="mx-auto max-w-7xl px-6 py-3">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-primary font-mono tracking-tighter">
-            Welcome {username || 'User'}
-          </h1>
+          <div className="flex items-center gap-4">
+            <div
+              className="flex items-center gap-2 cursor-pointer"
+              onClick={() => navigate('/home')}
+            >
+              <GuardFileLogo size={36} showText={false} />
+              <span className="text-xl font-bold text-purple-800 tracking-wide"
+                style={{ fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
+              >
+                GuardFile
+              </span>
+            </div>
+            <div className="h-8 w-px bg-gray-300" />
+            <span className="text-lg font-semibold text-gray-700">
+              Welcome, <span className="text-purple-700">{username || 'User'}</span>
+            </span>
+          </div>
 
-          {/* Logout Button on the right */}
           <button
             onClick={handleLogout}
-            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
+            className="px-5 py-2 rounded-lg border-2 border-purple-600 text-purple-600 font-medium hover:bg-purple-600 hover:text-white transition-all duration-200"
           >
             Logout
           </button>
