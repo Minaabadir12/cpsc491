@@ -17,11 +17,9 @@ const HomePage = () => {
   // Helper function to format IP address for display
   const formatIPAddress = (ip) => {
     if (!ip) return 'Unknown';
-    // Remove IPv6 prefix for localhost
     if (ip === '::ffff:127.0.0.1' || ip === '::1' || ip === '127.0.0.1') {
       return 'Local Device';
     }
-    // Remove IPv6 prefix for other IPs
     return ip.replace('::ffff:', '');
   };
 
@@ -223,8 +221,8 @@ const HomePage = () => {
         {/* Main Grid Sections */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Recent Activity */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-2xl font-semibold mb-4">Recent Activity</h2>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-xl font-semibold mb-4 text-purple-700">Recent Activity</h2>
             {userData.recentActivity && userData.recentActivity.length > 0 ? (
               <ul className="space-y-3">
                 {userData.recentActivity.map((activity, index) => {
@@ -232,7 +230,7 @@ const HomePage = () => {
                   return (
                     <li
                       key={index}
-                      className="flex items-center justify-between border-b border-gray-200 pb-3 hover:bg-gray-50 px-2 py-2 rounded transition"
+                      className="flex items-center justify-between border-b border-gray-100 pb-3 hover:bg-gray-50 px-2 py-2 rounded transition"
                     >
                       <div className="flex items-center gap-3 flex-1">
                         <div className={`w-8 h-8 rounded-full ${style.bgColor} flex items-center justify-center text-lg`}>
@@ -247,7 +245,7 @@ const HomePage = () => {
                           </p>
                         </div>
                       </div>
-                      <span className="text-gray-500 text-sm whitespace-nowrap ml-4">
+                      <span className="text-gray-400 text-sm whitespace-nowrap ml-4">
                         {activity.timestamp
                           ? new Date(activity.timestamp).toLocaleDateString("en-US", {
                               year: "numeric",
@@ -261,7 +259,6 @@ const HomePage = () => {
                 })}
               </ul>
             ) : userData.uploads && userData.uploads.length > 0 ? (
-              // Fallback to old format if recentActivity is not available
               <ul className="space-y-3">
                 {userData.uploads.map((item, index) => (
                   <li
@@ -282,24 +279,24 @@ const HomePage = () => {
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-500">No recent activity.</p>
+              <p className="text-gray-400">No recent activity.</p>
             )}
           </div>
 
           {/* Device Management */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-2xl font-semibold mb-4">Active Devices</h2>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-xl font-semibold mb-4 text-purple-700">Active Devices</h2>
             {userData.trustedDevices && userData.trustedDevices.length > 0 ? (
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-gray-300 text-gray-700">
-                    <th className="py-2">Device</th>
-                    <th>Last Active</th>
+                  <tr className="border-b border-gray-200 text-gray-600">
+                    <th className="py-2 font-semibold">Device</th>
+                    <th className="font-semibold">Last Active</th>
                   </tr>
                 </thead>
                 <tbody>
                   {userData.trustedDevices.map((d, i) => (
-                    <tr key={i} className="border-b border-gray-200 text-gray-600">
+                    <tr key={i} className="border-b border-gray-100 text-gray-600">
                       <td className="py-2">{d.deviceName || "Unknown Device"}</td>
                       <td>
                         {d.lastUsed
@@ -315,7 +312,7 @@ const HomePage = () => {
                 </tbody>
               </table>
             ) : (
-              <p className="text-gray-500">No trusted devices.</p>
+              <p className="text-gray-400">No trusted devices.</p>
             )}
           </div>
         </div>
