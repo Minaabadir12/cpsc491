@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { startAuthentication } from "@simplewebauthn/browser";
 import "./LoginPage.css";
 import { getOrCreateDeviceToken, getDeviceInfo } from "../utils/deviceFingerprint";
 import { captureVoiceEmbedding } from "../utils/voiceBiometrics";
+import GuardFileLogo from "../Components/GuardFileLogo";
 
 import user_icon from "../Components/Assets/person.png";
 import email_icon from "../Components/Assets/email.png";
@@ -25,6 +27,13 @@ const LoginPage = () => {
   const [showTwoFactor, setShowTwoFactor] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
+  const [enabledMethods, setEnabledMethods] = useState([]);
+  const [selectedMethod, setSelectedMethod] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+
+  // Passkey login state
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
   // Voice verification states
   const [showVoice, setShowVoice] = useState(false);
@@ -90,6 +99,57 @@ const LoginPage = () => {
     setShowVoice(true);
   };
 
+  const handlePasskeyLogin = async () => {
+    const passkeyEmail = prompt("Enter your email to login with passkey:");
+    if (!passkeyEmail) return;
+
+    setPasskeyLoading(true);
+    try {
+      const optionsRes = await fetch("http://localhost:3000/webauthn/login/options", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: passkeyEmail }),
+      });
+
+      const optionsData = await optionsRes.json();
+      if (!optionsRes.ok) {
+        alert(optionsData.error || "Failed to get passkey options");
+        setPasskeyLoading(false);
+        return;
+      }
+
+      const { userId, ...optionsJSON } = optionsData;
+      const authResponse = await startAuthentication({ optionsJSON });
+
+      const verifyRes = await fetch("http://localhost:3000/webauthn/login/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, asseResp: authResponse }),
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) {
+        alert(verifyData.error || "Passkey verification failed");
+        setPasskeyLoading(false);
+        return;
+      }
+
+      localStorage.setItem("token", verifyData.token);
+      localStorage.setItem("userId", verifyData.userId);
+      localStorage.setItem("username", verifyData.username);
+      navigate("/home");
+    } catch (err) {
+      console.error("Passkey login error:", err);
+      if (err.name === "NotAllowedError") {
+        alert("Passkey authentication was cancelled.");
+      } else {
+        alert("Passkey login failed. Please try again.");
+      }
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!email || !password || (action === "Sign Up" && !username)) {
       alert("Please fill in all required fields.");
@@ -123,7 +183,17 @@ const LoginPage = () => {
       if (action === "Login") {
         if (data.requiresTwoFactor) {
           setPendingEmail(data.email);
+          setEnabledMethods(data.enabledMethods || ["totp"]);
           setShowTwoFactor(true);
+
+          // Auto-select if only one method
+          if (data.enabledMethods && data.enabledMethods.length === 1) {
+            const method = data.enabledMethods[0];
+            setSelectedMethod(method);
+            if (method === "email") {
+              handleSend2FACodeDirect(data.email);
+            }
+          }
           return;
         }
 
@@ -184,6 +254,50 @@ const LoginPage = () => {
     }
   };
 
+  const handleSend2FACodeDirect = async (targetEmail) => {
+    setSendingCode(true);
+    try {
+      const res = await fetch("http://localhost:3000/login/send-2fa-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: targetEmail, method: "email" }),
+      });
+      if (res.ok) {
+        setCodeSent(true);
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to send code");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to send email code");
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
+  const handleSend2FACode = async () => {
+    await handleSend2FACodeDirect(pendingEmail);
+  };
+
+  const handleSelectMethod = (method) => {
+    setSelectedMethod(method);
+    setTwoFactorCode("");
+    setCodeSent(false);
+    if (method === "email") {
+      handleSend2FACodeDirect(pendingEmail);
+    }
+  };
+
+  const handleCancel2FA = () => {
+    setShowTwoFactor(false);
+    setTwoFactorCode("");
+    setPendingEmail("");
+    setEnabledMethods([]);
+    setSelectedMethod("");
+    setCodeSent(false);
+  };
+
   const handleVerify2FA = async () => {
     if (!twoFactorCode || twoFactorCode.length !== 6) {
       alert("Please enter a valid 6-digit code");
@@ -197,6 +311,7 @@ const LoginPage = () => {
         body: JSON.stringify({
           email: pendingEmail,
           twoFactorToken: twoFactorCode,
+          method: selectedMethod || "totp",
         }),
       });
       const data = await res.json();
@@ -329,7 +444,7 @@ const LoginPage = () => {
   if (showTwoFactor) {
     return (
       <div className="title">
-        <h1>GuardFile</h1>
+        <GuardFileLogo size={90} />
         <div className="container">
           <div className="header">
             <div className="text">Two-Factor Authentication</div>
@@ -337,36 +452,108 @@ const LoginPage = () => {
           </div>
 
           <div className="inputs">
-            <p style={{ textAlign: "center", marginBottom: "20px", color: "#666" }}>
-              Enter the 6-digit code from your authenticator app
-            </p>
+            {/* Method selection - show if multiple methods enabled */}
+            {enabledMethods.length > 1 && !selectedMethod && (
+              <div style={{ textAlign: "center" }}>
+                <p style={{ marginBottom: "16px", color: "#666" }}>
+                  Choose your verification method:
+                </p>
+                {enabledMethods.includes("totp") && (
+                  <div
+                    className="submit"
+                    style={{ marginBottom: "10px" }}
+                    onClick={() => handleSelectMethod("totp")}
+                  >
+                    Authenticator App
+                  </div>
+                )}
+                {enabledMethods.includes("email") && (
+                  <div
+                    className="submit"
+                    onClick={() => handleSelectMethod("email")}
+                  >
+                    Email Code
+                  </div>
+                )}
+              </div>
+            )}
 
-            <div className="input">
-              <img src={password_icon} width={25} height={25} alt="2FA Code" />
-              <input
-                type="text"
-                placeholder="Enter 6-digit code"
-                value={twoFactorCode}
-                onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                maxLength={6}
-              />
-            </div>
+            {/* Code entry - show after method selected or if only one method */}
+            {selectedMethod && (
+              <>
+                <p style={{ textAlign: "center", marginBottom: "10px", color: "#666" }}>
+                  {selectedMethod === "totp"
+                    ? "Enter the 6-digit code from your authenticator app"
+                    : codeSent
+                    ? "Enter the 6-digit code sent to your email"
+                    : "Sending code to your email..."}
+                </p>
+
+                {selectedMethod === "email" && !codeSent && (
+                  <div style={{ textAlign: "center" }}>
+                    <div
+                      className="submit"
+                      onClick={handleSend2FACode}
+                      style={{ opacity: sendingCode ? 0.6 : 1 }}
+                    >
+                      {sendingCode ? "Sending..." : "Send Code"}
+                    </div>
+                  </div>
+                )}
+
+                {(selectedMethod === "totp" || codeSent) && (
+                  <div className="input">
+                    <img src={password_icon} width={25} height={25} alt="2FA Code" />
+                    <input
+                      type="text"
+                      placeholder="Enter 6-digit code"
+                      value={twoFactorCode}
+                      onChange={(e) =>
+                        setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                      }
+                      maxLength={6}
+                    />
+                  </div>
+                )}
+
+                {selectedMethod === "email" && codeSent && (
+                  <p
+                    style={{
+                      textAlign: "center",
+                      fontSize: "13px",
+                      color: "#7c3aed",
+                      cursor: "pointer",
+                    }}
+                    onClick={handleSend2FACode}
+                  >
+                    Resend code
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
           <div className="submit-container">
-            <div className="submit" onClick={handleVerify2FA}>
-              Verify
-            </div>
-            <div
-              className="submit gray"
-              onClick={() => {
-                setShowTwoFactor(false);
-                setTwoFactorCode("");
-                setPendingEmail("");
-              }}
-            >
+            {selectedMethod && (selectedMethod === "totp" || codeSent) && (
+              <div className="submit" onClick={handleVerify2FA}>
+                Verify
+              </div>
+            )}
+            <div className="submit gray" onClick={handleCancel2FA}>
               Cancel
             </div>
+            {enabledMethods.length > 1 && selectedMethod && (
+              <div
+                className="submit gray"
+                onClick={() => {
+                  setSelectedMethod("");
+                  setTwoFactorCode("");
+                  setCodeSent(false);
+                }}
+              >
+                Other Method
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -376,7 +563,7 @@ const LoginPage = () => {
   if (showVerification) {
     return (
       <div className="title">
-        <h1>GuardFile</h1>
+        <GuardFileLogo size={90} />
         <div className="container">
           <div className="header">
             <div className="text">Verify Device</div>
@@ -423,11 +610,11 @@ const LoginPage = () => {
 
   return (
     <div className="title">
-      <h1>GuardFile</h1>
+      <GuardFileLogo size={90} />
 
       <div className="container">
         <div className="header">
-          <div className="text">{action}</div>
+          <div className="text">{action === "Sign Up" ? "Create Account" : "Welcome Back"}</div>
           <div className="underline"></div>
         </div>
 
@@ -476,7 +663,7 @@ const LoginPage = () => {
               {confirmPassword && (
                 <p
                   style={{
-                    color: password === confirmPassword ? "green" : "red",
+                    color: password === confirmPassword ? "#22c55e" : "#ef4444",
                     fontSize: "0.8rem",
                     marginTop: "0.2rem",
                   }}
@@ -491,7 +678,7 @@ const LoginPage = () => {
         {action === "Login" && (
           <div className="forgot-password">
             Lost password?{" "}
-            <span style={{ cursor: "pointer", color: "blue" }} onClick={() => navigate("/resetpassword")}>
+            <span onClick={() => navigate("/resetpassword")}>
               click here
             </span>
           </div>
@@ -499,13 +686,46 @@ const LoginPage = () => {
 
         <div className="submit-container">
           <div className="submit" onClick={handleSubmit}>
-            {action}
+            {action === "Sign Up" ? "Sign Up" : "Log In"}
           </div>
 
           <div className="submit gray" onClick={() => setAction(action === "Login" ? "Sign Up" : "Login")}>
-            {action === "Login" ? "Switch to Sign Up" : "Switch to Login"}
+            {action === "Login" ? "Create Account" : "Switch to Login"}
           </div>
         </div>
+
+        {/* Passkey login - only shown in Login mode */}
+        {action === "Login" && (
+          <>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                margin: "20px 0 10px",
+                width: "100%",
+              }}
+            >
+              <div style={{ flex: 1, height: "1px", background: "#ddd" }} />
+              <span style={{ color: "#999", fontSize: "13px" }}>or</span>
+              <div style={{ flex: 1, height: "1px", background: "#ddd" }} />
+            </div>
+
+            <div
+              className="submit"
+              style={{
+                width: "100%",
+                background: passkeyLoading
+                  ? "#ccc"
+                  : "linear-gradient(135deg, #4c00b4 0%, #2d004d 100%)",
+                cursor: passkeyLoading ? "not-allowed" : "pointer",
+              }}
+              onClick={!passkeyLoading ? handlePasskeyLogin : undefined}
+            >
+              {passkeyLoading ? "Authenticating..." : "Login with Passkey"}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

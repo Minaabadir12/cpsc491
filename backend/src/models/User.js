@@ -1,16 +1,41 @@
 import mongoose from "mongoose";
 
-const userSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema(
+{
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password_hash: { type: String, required: true },
   passwordChangedAt: { type: Date, default: Date.now },
   phone: { type: String, default: "" },
+
   storageUsed: { type: Number, default: 0 },
   storageLimit: { type: Number, default: 1000 },
+
+  /* =========================
+     TWO FACTOR AUTH
+  ========================== */
   twoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String, default: null },
+
+  twoFactorMethods: {
+    totp: {
+      enabled: { type: Boolean, default: false },
+      secret: { type: String, default: null },
+    },
+    email: {
+      enabled: { type: Boolean, default: false },
+    },
+  },
+
+  twoFactorCode: { type: String, default: null },
+  twoFactorCodeExpires: { type: Date, default: null },
+  twoFactorCodeMethod: { type: String, default: null },
+
   accountStatus: { type: String, default: "Active" },
+
+  /* =========================
+     FILE UPLOADS
+  ========================== */
   uploads: [
     {
       filename: String,
@@ -27,8 +52,22 @@ const userSchema = new mongoose.Schema({
       quarantinePath: { type: String, default: null },
       cleanPath: { type: String, default: null },
       sha256: { type: String, default: null },
+
+      encryptionMode: {
+        type: String,
+        enum: ["none", "password", "passkey"],
+        default: "none",
+      },
+      encryptionSalt: { type: String, default: null },
+      encryptionIV: { type: String, default: null },
+      encryptionTag: { type: String, default: null },
+      encryptionKey: { type: String, default: null },
     },
   ],
+
+  /* =========================
+     DEVICES
+  ========================== */
   devices: [
     {
       device: String,
@@ -37,9 +76,10 @@ const userSchema = new mongoose.Schema({
       lastActive: { type: Date, default: Date.now },
     },
   ],
+
   trustedDevices: [
     {
-      deviceToken: { type: String, required: true, unique: true },
+      deviceToken: { type: String, required: true },
       deviceName: String,
       userAgent: String,
       ipAddress: String,
@@ -47,17 +87,28 @@ const userSchema = new mongoose.Schema({
       lastUsed: { type: Date, default: Date.now },
     },
   ],
+
   deviceAuthEnabled: { type: Boolean, default: false },
-  // Password reset
+
+  /* =========================
+     PASSWORD RESET
+  ========================== */
   resetToken: String,
   resetTokenExpires: Date,
-  // Device verification
+
+  /* =========================
+     DEVICE VERIFICATION
+  ========================== */
   deviceVerificationCode: String,
   deviceVerificationExpires: Date,
-  pendingDeviceToken: String, // Temporarily store device info during verification
+  pendingDeviceToken: String,
   pendingDeviceName: String,
   pendingDeviceUserAgent: String,
   createdAt: { type: Date, default: Date.now },
+
+  /* =========================
+     FILE SHARING
+  ========================== */
   sharedLinks: [
     {
       linkId: String,
@@ -65,11 +116,13 @@ const userSchema = new mongoose.Schema({
       password: String,
       expiresAt: Date,
       createdAt: { type: Date, default: Date.now },
+      decryptionKey: { type: String, default: null },
     },
   ],
-  // =========================
-  // PASSKEYS / BIOMETRICS (WebAuthn)
-  // =========================
+
+  /* =========================
+     PASSKEYS / WEBAUTHN
+  ========================== */
   currentChallenge: String,
   webauthnCredentials: [
     {
@@ -80,6 +133,7 @@ const userSchema = new mongoose.Schema({
       createdAt: { type: Date, default: Date.now },
     },
   ],
+
   // =========================
   // RECENT ACTIVITY TRACKING
   // =========================

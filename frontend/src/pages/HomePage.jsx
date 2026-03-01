@@ -31,14 +31,12 @@ const HomePage = () => {
 
   const parseUserAgent = (ua) => {
     const value = (ua || "").toLowerCase();
-
     let browser = "Unknown";
     if (value.includes("edg/")) browser = "Edge";
     else if (value.includes("opr/") || value.includes("opera")) browser = "Opera";
     else if (value.includes("chrome/")) browser = "Chrome";
     else if (value.includes("firefox/")) browser = "Firefox";
     else if (value.includes("safari/") && !value.includes("chrome/")) browser = "Safari";
-
     return browser;
   };
 
@@ -52,7 +50,6 @@ const HomePage = () => {
     if (!dateLike) return "Unknown";
     const value = new Date(dateLike).getTime();
     if (Number.isNaN(value)) return "Unknown";
-
     const diffSec = Math.max(0, Math.floor((nowMs - value) / 1000));
     if (diffSec < 60) return "just now";
     if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min ago`;
@@ -67,29 +64,13 @@ const HomePage = () => {
   const getActivityStyle = (action, metadata = {}) => {
     if (action === "modify" && metadata?.scanStatus) {
       if (metadata.scanStatus === "clean") {
-        return {
-          icon: "SC",
-          color: "text-emerald-700",
-          bgColor: "bg-emerald-100",
-          label: "Security Scan: Clean",
-        };
+        return { icon: "SC", color: "text-emerald-700", bgColor: "bg-emerald-100", label: "Security Scan: Clean" };
       }
       if (metadata.scanStatus === "infected") {
-        return {
-          icon: "SB",
-          color: "text-rose-700",
-          bgColor: "bg-rose-100",
-          label: "Security Scan: Blocked",
-        };
+        return { icon: "SB", color: "text-rose-700", bgColor: "bg-rose-100", label: "Security Scan: Blocked" };
       }
-      return {
-        icon: "SE",
-        color: "text-amber-700",
-        bgColor: "bg-amber-100",
-        label: "Security Scan: Error",
-      };
+      return { icon: "SE", color: "text-amber-700", bgColor: "bg-amber-100", label: "Security Scan: Error" };
     }
-
     const styles = {
       upload: { icon: "↑", color: "text-green-600", bgColor: "bg-green-100", label: "Uploaded" },
       delete: { icon: "🗑", color: "text-red-600", bgColor: "bg-red-100", label: "Deleted" },
@@ -160,15 +141,22 @@ const HomePage = () => {
   };
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500 text-lg">Loading...</p>
+      </div>
+    );
   }
 
   if (!userData) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-xl mb-4">Failed to load dashboard</p>
-          <button onClick={() => navigate("/")} className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+          <p className="text-xl mb-4 text-gray-700">Failed to load dashboard</p>
+          <button
+            onClick={() => navigate("/")}
+            className="bg-purple-600 text-white px-5 py-2 rounded-lg hover:bg-purple-700 transition"
+          >
             Return to Login
           </button>
         </div>
@@ -181,21 +169,24 @@ const HomePage = () => {
   const storageLimitRounded = userData.storageLimit.toFixed(2);
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <Navbar onLogout={handleLogout} />
       <div className="max-w-7xl mx-auto py-10 px-6">
-        <h1 className="text-4xl font-bold text-center mb-10">GuardFile Dashboard</h1>
+        <h1 className="text-4xl font-bold text-center mb-10 text-purple-800">
+          GuardFile Dashboard
+        </h1>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-3">Storage Usage</h2>
-            <p className="text-gray-600 mb-2">
+          {/* Storage */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold mb-3 text-purple-700">Storage Usage</h2>
+            <p className="text-gray-600 mb-2 text-sm">
               {storageUsedRounded} GB / {storageLimitRounded} GB ({(userData.storageLimit / 1024).toFixed(2)} TB)
             </p>
-            <div className="w-full bg-gray-200 rounded-full h-4 mb-2">
+            <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
               <div
-                className={`h-4 rounded-full transition-all duration-500 ${
-                  storagePercent > 90 ? "bg-red-500" : storagePercent > 70 ? "bg-yellow-500" : "bg-green-500"
+                className={`h-3 rounded-full transition-all duration-500 ${
+                  storagePercent > 90 ? "bg-red-500" : storagePercent > 70 ? "bg-yellow-500" : "bg-purple-500"
                 }`}
                 style={{ width: `${storagePercent}%` }}
               />
@@ -203,8 +194,9 @@ const HomePage = () => {
             <p className="text-sm text-gray-500">{storagePercent.toFixed(1)}% used</p>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-4">Security Score</h2>
+          {/* Security Score */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold mb-3 text-purple-700">Security Score</h2>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-end gap-2">
                 <div
@@ -244,33 +236,38 @@ const HomePage = () => {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-3">Account Status</h2>
-            <p>
-              <span className="font-medium text-gray-700">Status:</span>{" "}
+          {/* Account Quick Info */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold mb-3 text-purple-700">Account Status</h2>
+            <p className="mb-1">
+              <span className="font-medium text-gray-600">Status:</span>{" "}
               <span className="text-green-600 font-semibold">{userData.accountStatus || "Active"}</span>
             </p>
-            <p>
-              <span className="font-medium text-gray-700">2FA Enabled:</span>{" "}
-              <span className="text-green-600 font-semibold">{userData.twoFactorEnabled ? "Yes" : "No"}</span>
+            <p className="mb-1">
+              <span className="font-medium text-gray-600">2FA Enabled:</span>{" "}
+              <span className={`font-semibold ${userData.twoFactorEnabled ? "text-green-600" : "text-red-500"}`}>
+                {userData.twoFactorEnabled ? "Yes" : "No"}
+              </span>
             </p>
             <p>
-              <span className="font-medium text-gray-700">Joined:</span>{" "}
-              {userData?.createdAt
-                ? new Date(userData.createdAt).toLocaleDateString("en-US", {
-                    weekday: "short",
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })
-                : "Unknown"}
+              <span className="font-medium text-gray-600">Joined:</span>{" "}
+              <span className="text-gray-700">
+                {userData?.createdAt
+                  ? new Date(userData.createdAt).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })
+                  : "Unknown"}
+              </span>
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          <div className="bg-white p-5 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-3">Recent Activity</h2>
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-xl font-semibold mb-3 text-purple-700">Recent Activity</h2>
             {userData.recentActivity && userData.recentActivity.length > 0 ? (
               <ul className="space-y-1 max-h-[420px] overflow-auto pr-1">
                 {userData.recentActivity.slice(0, 10).map((activity, index) => {
@@ -310,8 +307,8 @@ const HomePage = () => {
             )}
           </div>
 
-          <div className="bg-white p-4 rounded-lg shadow-md self-start w-full">
-            <h2 className="text-lg font-semibold mb-2">Trusted Devices</h2>
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 self-start w-full">
+            <h2 className="text-lg font-semibold mb-2 text-purple-700">Trusted Devices</h2>
             {userData.trustedDevices && userData.trustedDevices.length > 0 ? (
               <table className="w-full text-left border-collapse text-sm">
                 <thead>
@@ -337,20 +334,30 @@ const HomePage = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 mt-10">
-          <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg cursor-pointer transition" onClick={() => handleNavigation("/settings")}>
-            <h2 className="text-xl font-semibold mb-2">Settings</h2>
-            <p className="text-gray-600">Configure account and security preferences.</p>
+        {/* Navigation Tiles */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-10">
+          <div
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500 hover:shadow-md cursor-pointer transition-all"
+            onClick={() => handleNavigation("/settings")}
+          >
+            <h2 className="text-lg font-semibold mb-1 text-purple-700">Settings</h2>
+            <p className="text-gray-500 text-sm">Configure account and security preferences.</p>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg cursor-pointer transition" onClick={() => handleNavigation("/upload")}>
-            <h2 className="text-xl font-semibold mb-2">Upload Files</h2>
-            <p className="text-gray-600">Securely upload new files to your storage.</p>
+          <div
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500 hover:shadow-md cursor-pointer transition-all"
+            onClick={() => handleNavigation("/upload")}
+          >
+            <h2 className="text-lg font-semibold mb-1 text-purple-700">Upload Files</h2>
+            <p className="text-gray-500 text-sm">Securely upload new files to your storage.</p>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg cursor-pointer transition" onClick={() => handleNavigation("/manage")}>
-            <h2 className="text-xl font-semibold mb-2">Manage Files</h2>
-            <p className="text-gray-600">View, share, or delete stored files.</p>
+          <div
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500 hover:shadow-md cursor-pointer transition-all"
+            onClick={() => handleNavigation("/manage")}
+          >
+            <h2 className="text-lg font-semibold mb-1 text-purple-700">Manage Files</h2>
+            <p className="text-gray-500 text-sm">View, share, or delete stored files.</p>
           </div>
         </div>
       </div>

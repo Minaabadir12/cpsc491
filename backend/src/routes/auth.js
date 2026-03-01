@@ -179,6 +179,9 @@ router.post("/verify-device-code", async (req, res) => {
       user.trustedDevices = [];
     }
 
+    // Store device name for activity logging
+    const deviceName = user.pendingDeviceName || 'New Device';
+
     // Add device to trusted list
     user.trustedDevices.push({
       deviceToken: user.pendingDeviceToken,
@@ -188,6 +191,28 @@ router.post("/verify-device-code", async (req, res) => {
       trustedAt: new Date(),
       lastUsed: new Date(),
     });
+
+    // Initialize recentActivity if needed
+    if (!user.recentActivity) {
+      user.recentActivity = [];
+    }
+
+    // Log device added activity
+    user.recentActivity.unshift({
+      action: 'device_added',
+      filename: deviceName,
+      timestamp: new Date(),
+      metadata: {
+        deviceToken: user.pendingDeviceToken,
+        userAgent: user.pendingDeviceUserAgent,
+        ipAddress: req.ip || req.connection.remoteAddress
+      }
+    });
+
+    // Keep only the last 50 activities
+    if (user.recentActivity.length > 50) {
+      user.recentActivity = user.recentActivity.slice(0, 50);
+    }
 
     // Clear verification data
     user.deviceVerificationCode = undefined;
