@@ -382,6 +382,64 @@ const LoginPage = () => {
     }
   };
 
+  const handlePasskeyVoiceBypass = async () => {
+    if (!voiceChallenge?.email) {
+      setVoiceFeedback("Voice challenge is missing. Please restart login.");
+      return;
+    }
+
+    try {
+      setPasskeyLoading(true);
+      setVoiceFeedback("Use your device biometrics to continue...");
+
+      const optRes = await fetch("http://localhost:3000/webauthn/login/options-by-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: voiceChallenge.email }),
+      });
+      const optData = await optRes.json();
+      if (!optRes.ok) {
+        setVoiceFeedback(optData.error || "Failed to start passkey login.");
+        return;
+      }
+
+      const authResponse = await startAuthentication(optData.options);
+
+      const verRes = await fetch("http://localhost:3000/webauthn/login/verify-by-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: optData.email || voiceChallenge.email,
+          userId: optData.userId,
+          asseResp: authResponse,
+          bypassVoice: true,
+        }),
+      });
+      const verData = await verRes.json();
+      if (!verRes.ok) {
+        const lockMsg = verData.lockUntil
+          ? ` Locked until ${new Date(verData.lockUntil).toLocaleString()}.`
+          : "";
+        setVoiceFeedback((verData.error || "Passkey login failed.") + lockMsg);
+        return;
+      }
+
+      setShowVoice(false);
+      setVoiceChallenge(null);
+      setVoiceFeedback("");
+      await finalizeLoginWithToken(verData, optData.email || voiceChallenge.email);
+    } catch (err) {
+      console.error("Voice bypass passkey error:", err);
+      if (err?.name === "NotAllowedError") {
+        setVoiceFeedback("Passkey prompt was canceled or timed out.");
+      } else {
+        setVoiceFeedback("Passkey bypass failed. Please try again.");
+      }
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
   if (showVoice) {
     return (
       <div className="title">
@@ -423,6 +481,13 @@ const LoginPage = () => {
           <div className="submit-container">
             <div className="submit" onClick={handleVerifyVoice}>
               {voiceBusy ? "Verifying..." : "Record & Verify Voice"}
+            </div>
+            <div
+              className="submit gray"
+              onClick={!passkeyLoading ? handlePasskeyVoiceBypass : undefined}
+              style={{ opacity: passkeyLoading ? 0.6 : 1 }}
+            >
+              {passkeyLoading ? "Use Device Biometrics..." : "Use Passkey Instead"}
             </div>
             <div
               className="submit gray"

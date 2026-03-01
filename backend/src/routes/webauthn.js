@@ -90,7 +90,7 @@ function getStoredPubKeyString(c) {
 function issueAuthToken(user) {
   return jwt.sign(
     { userId: user._id, username: user.username },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: "10m" }
   );
 }
@@ -492,7 +492,7 @@ router.post("/webauthn/login/verify", async (req, res) => {
 
 // ✅ passkey login verify by email/userId and issue auth result for login page
 router.post("/webauthn/login/verify-by-email", async (req, res) => {
-  const { email, userId, asseResp } = req.body;
+  const { email, userId, asseResp, bypassVoice = false } = req.body;
   if ((!email && !userId) || !asseResp) {
     return res.status(400).json({ error: "Missing email/userId or asseResp" });
   }
@@ -544,7 +544,7 @@ router.post("/webauthn/login/verify-by-email", async (req, res) => {
     await user.save();
     await recordSuccessfulAuth(user, "passkey_login");
 
-    if (shouldRequireVoiceLogin(user)) {
+    if (!bypassVoice && shouldRequireVoiceLogin(user)) {
       if (isVoiceLocked(user)) {
         return res.status(423).json({
           error: "Voice login is temporarily locked due to repeated failed attempts",

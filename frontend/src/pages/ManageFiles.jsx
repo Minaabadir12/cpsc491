@@ -444,6 +444,11 @@ const ManageFiles = () => {
                       </span>
                     )}
                   </div>
+                  <span
+                    className={`inline-block text-xs px-2 py-1 rounded-full mt-2 ${getScanMeta(file.scanStatus).className}`}
+                  >
+                    {getScanMeta(file.scanStatus).label}
+                  </span>
                   <p className="text-sm text-gray-500 mt-1">
                     {(file.size ?? 0).toFixed(2)} MB
                   </p>
@@ -462,16 +467,26 @@ const ManageFiles = () => {
                 <div className="flex justify-between mt-4 gap-2">
                   <button
                     onClick={() => handleDownload(file)}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-sm font-medium text-purple-600 border border-purple-300 rounded-lg hover:bg-purple-50 transition"
-                    title="Download file"
+                    className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-sm font-medium border rounded-lg transition ${
+                      file.scanStatus === "clean"
+                        ? "text-purple-600 border-purple-300 hover:bg-purple-50"
+                        : "text-gray-400 border-gray-200 cursor-not-allowed"
+                    }`}
+                    title={file.scanStatus === "clean" ? "Download file" : "File is not ready for download"}
+                    disabled={file.scanStatus !== "clean"}
                   >
                     <Download className="w-4 h-4" /> Download
                   </button>
 
                   <button
                     onClick={() => handleShare(file.filename)}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-sm font-medium text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 transition"
-                    title="Share file"
+                    className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-sm font-medium border rounded-lg transition ${
+                      file.scanStatus === "clean"
+                        ? "text-blue-600 border-blue-300 hover:bg-blue-50"
+                        : "text-gray-400 border-gray-200 cursor-not-allowed"
+                    }`}
+                    title={file.scanStatus === "clean" ? "Share file" : "File is not ready for sharing"}
+                    disabled={file.scanStatus !== "clean"}
                   >
                     <Share2 className="w-4 h-4" /> Share
                   </button>
