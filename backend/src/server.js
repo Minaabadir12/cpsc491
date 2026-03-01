@@ -20,6 +20,44 @@ import speakeasy from "speakeasy";
 import QRCode from "qrcode";
 dotenv.config();
 
+// ------------------- SPEAKER VERIFICATION MODEL -------------------
+// WavLM fine-tuned on VoxCeleb1 for speaker identity.
+// Audio models have no tokenizer — use AutoProcessor + AutoModel directly.
+let _speakerProcessor = null;
+let _speakerModel = null;
+
+async function getSpeakerExtractor() {
+  if (!_speakerModel) {
+    const { AutoProcessor, AutoModel } = await import("@xenova/transformers");
+    console.log("Loading speaker verification model (first run downloads ~90MB)...");
+    _speakerProcessor = await AutoProcessor.from_pretrained("Xenova/wavlm-base-plus-sv");
+    _speakerModel = await AutoModel.from_pretrained("Xenova/wavlm-base-plus-sv");
+    console.log("Speaker verification model ready.");
+  }
+  return { model: _speakerModel, processor: _speakerProcessor };
+}
+
+async function extractSpeakerEmbedding(audioFloat32) {
+  const { model, processor } = await getSpeakerExtractor();
+  const inputs = await processor(audioFloat32, { sampling_rate: 16000 });
+  const output = await model(inputs);
+
+  // Mean-pool the last hidden state over time: [1, T, 768] -> [768]
+  if (output.last_hidden_state) {
+    return Array.from(output.last_hidden_state.mean(1).data);
+  }
+  // Some fine-tuned variants expose a compact embedding via logits
+  if (output.logits) {
+    return Array.from(output.logits.data);
+  }
+  throw new Error("Speaker model returned no usable output");
+}
+
+// Pre-load model at startup so the first request isn't slow
+getSpeakerExtractor().catch((err) =>
+  console.error("Speaker model preload failed:", err)
+);
+
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-CHANGE-THIS-IN-PRODUCTION";
 const execFileAsync = promisify(execFile);
 
@@ -40,7 +78,7 @@ const upload = multer({ storage });
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(webauthnRoutes);
 app.use(authRoutes);
 
@@ -124,7 +162,7 @@ async function recordSuccessfulAuth(user, reason = "login_success") {
 
 function normalizeEmbedding(embedding) {
   const arr = Array.isArray(embedding) ? embedding.map(Number) : [];
-  if (arr.length < 8 || arr.length > 256) return null;
+  if (arr.length < 8 || arr.length > 2048) return null;
   if (arr.some((n) => !Number.isFinite(n))) return null;
 
   let mag = 0;
@@ -1016,13 +1054,24 @@ app.get("/api/voice/status/:userId", authenticateToken, async (req, res) => {
 
 app.post("/api/voice/enroll/:userId", authenticateToken, async (req, res) => {
   const { userId } = req.params;
-  const { embedding, phrase } = req.body;
+  const { audioData, phrase } = req.body;
 
   if (req.user.userId !== userId) {
     return res.status(403).json({ error: "Unauthorized access" });
   }
 
-  const normalized = normalizeEmbedding(embedding);
+  if (!Array.isArray(audioData) || audioData.length < 1000) {
+    return res.status(400).json({ error: "Invalid audio data" });
+  }
+
+  let normalized;
+  try {
+    const embedding = await extractSpeakerEmbedding(Float32Array.from(audioData));
+    normalized = normalizeEmbedding(embedding);
+  } catch (err) {
+    console.error("Embedding extraction failed:", err);
+    return res.status(500).json({ error: "Failed to extract voice embedding" });
+  }
   if (!normalized) {
     return res.status(400).json({ error: "Invalid voice embedding" });
   }
@@ -1045,7 +1094,7 @@ app.post("/api/voice/enroll/:userId", authenticateToken, async (req, res) => {
 
     user.voiceBiometrics.enabled = true;
     if (typeof user.voiceBiometrics.threshold !== "number") {
-      user.voiceBiometrics.threshold = 0.9;
+      user.voiceBiometrics.threshold = 0.82;
     }
     if (phrase && typeof phrase === "string") {
       user.voiceBiometrics.phrase = phrase.slice(0, 140).trim() || user.voiceBiometrics.phrase;
@@ -1060,7 +1109,7 @@ app.post("/api/voice/enroll/:userId", authenticateToken, async (req, res) => {
       user.voiceBiometrics.embeddings = user.voiceBiometrics.embeddings.slice(-5);
     }
 
-    if (user.voiceBiometrics.embeddings.length >= 3) {
+    if (user.voiceBiometrics.embeddings.length >= 5) {
       user.voiceBiometrics.loginRequired = true;
     }
 
@@ -1082,13 +1131,24 @@ app.post("/api/voice/enroll/:userId", authenticateToken, async (req, res) => {
 
 app.post("/api/voice/verify/:userId", authenticateToken, async (req, res) => {
   const { userId } = req.params;
-  const { embedding } = req.body;
+  const { audioData } = req.body;
 
   if (req.user.userId !== userId) {
     return res.status(403).json({ error: "Unauthorized access" });
   }
 
-  const normalized = normalizeEmbedding(embedding);
+  if (!Array.isArray(audioData) || audioData.length < 1000) {
+    return res.status(400).json({ error: "Invalid audio data" });
+  }
+
+  let normalized;
+  try {
+    const embedding = await extractSpeakerEmbedding(Float32Array.from(audioData));
+    normalized = normalizeEmbedding(embedding);
+  } catch (err) {
+    console.error("Embedding extraction failed:", err);
+    return res.status(500).json({ error: "Failed to extract voice embedding" });
+  }
   if (!normalized) {
     return res.status(400).json({ error: "Invalid voice embedding" });
   }
@@ -1110,12 +1170,17 @@ app.post("/api/voice/verify/:userId", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Stored voice profile is invalid. Re-enroll required." });
     }
 
-    let bestScore = -1;
-    for (const vec of validVectors) {
-      bestScore = Math.max(bestScore, cosineSimilarity(normalized, vec));
+    if (validVectors[0].length !== normalized.length) {
+      return res.status(400).json({ error: "Voice profile is outdated. Please re-enroll your voice in Settings." });
     }
 
-    const threshold = Number(user.voiceBiometrics?.threshold) || 0.9;
+    let totalScore = 0;
+    for (const vec of validVectors) {
+      totalScore += cosineSimilarity(normalized, vec);
+    }
+    const bestScore = totalScore / validVectors.length;
+
+    const threshold = Number(user.voiceBiometrics?.threshold) || 0.82;
     const verified = bestScore >= threshold;
 
     if (verified) {
@@ -1399,13 +1464,24 @@ app.post("/login/verify-2fa", async (req, res) => {
 });
 
 app.post("/login/verify-voice", async (req, res) => {
-  const { email, challengeId, embedding } = req.body;
+  const { email, challengeId, audioData } = req.body;
 
-  if (!email || !challengeId || !embedding) {
-    return res.status(400).json({ error: "Email, challengeId, and embedding are required" });
+  if (!email || !challengeId || !audioData) {
+    return res.status(400).json({ error: "Email, challengeId, and audioData are required" });
   }
 
-  const normalized = normalizeEmbedding(embedding);
+  if (!Array.isArray(audioData) || audioData.length < 1000) {
+    return res.status(400).json({ error: "Invalid audio data" });
+  }
+
+  let normalized;
+  try {
+    const embedding = await extractSpeakerEmbedding(Float32Array.from(audioData));
+    normalized = normalizeEmbedding(embedding);
+  } catch (err) {
+    console.error("Embedding extraction failed:", err);
+    return res.status(500).json({ error: "Failed to extract voice embedding" });
+  }
   if (!normalized) {
     return res.status(400).json({ error: "Invalid voice embedding" });
   }
@@ -1449,12 +1525,39 @@ app.post("/login/verify-voice", async (req, res) => {
       return res.status(400).json({ error: "No valid voice profile found. Re-enroll voice biometrics." });
     }
 
-    let bestScore = -1;
-    for (const vec of validVectors) {
-      bestScore = Math.max(bestScore, cosineSimilarity(normalized, vec));
+    if (validVectors[0].length !== normalized.length) {
+      // Stale profile from before the feature upgrade — reset and let the user in
+      // so they can re-enroll from Settings without being permanently locked out.
+      user.voiceBiometrics = {
+        enabled: false,
+        loginRequired: false,
+        embeddings: [],
+        threshold: 0.82,
+        failedAttempts: 0,
+        lockUntil: null,
+        pendingChallenge: { challengeId: null, phrase: null, expiresAt: null, attempts: 0 },
+        phrase: "My voice unlocks GuardFile",
+      };
+      await user.save();
+      await logActivity(user._id.toString(), "voice_removed", "Voice login", { reason: "outdated_profile_auto_reset" });
+      const token = issueAuthToken(user);
+      await recordSuccessfulAuth(user, "password_login");
+      return res.json({
+        message: "Login successful. Your voice profile was outdated and has been reset — please re-enroll in Settings.",
+        token,
+        userId: user._id,
+        username: user.username,
+        voiceReenrollRequired: true,
+      });
     }
 
-    const threshold = Number(user.voiceBiometrics?.threshold) || 0.9;
+    let totalScore = 0;
+    for (const vec of validVectors) {
+      totalScore += cosineSimilarity(normalized, vec);
+    }
+    const bestScore = totalScore / validVectors.length;
+
+    const threshold = Number(user.voiceBiometrics?.threshold) || 0.82;
     const verified = bestScore >= threshold;
 
     if (!verified) {

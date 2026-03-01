@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { startAuthentication } from "@simplewebauthn/browser";
 import "./LoginPage.css";
 import { getOrCreateDeviceToken, getDeviceInfo } from "../utils/deviceFingerprint";
 import { captureVoiceEmbedding } from "../utils/voiceBiometrics";
@@ -32,44 +31,11 @@ const LoginPage = () => {
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceFeedback, setVoiceFeedback] = useState("");
   const [voiceChallenge, setVoiceChallenge] = useState(null);
-  const [passkeyBusy, setPasskeyBusy] = useState(false);
-
   const navigate = useNavigate();
 
   useEffect(() => {
     localStorage.setItem("authMode", action);
   }, [action]);
-
-  const getPasskeyErrorMessage = (err) => {
-    const raw = err?.message || "";
-    const msg = raw.toLowerCase();
-    const name = err?.name || "";
-
-    if (name === "NotAllowedError") {
-      if (msg.includes("timed out") || msg.includes("privacy-considerations-client")) {
-        return "Passkey request timed out or was blocked. Use HTTPS/localhost, keep this tab focused, and approve the device prompt quickly.";
-      }
-      return "Passkey was canceled or blocked by the browser/device prompt.";
-    }
-
-    if (name === "SecurityError") {
-      return "Passkey is blocked by browser security rules. Check RP ID/Origin and use HTTPS or localhost.";
-    }
-
-    if (name === "InvalidStateError") {
-      return "This passkey is in an invalid state on this device. Try another registered authenticator.";
-    }
-
-    if (msg.includes("no passkey found")) {
-      return "No passkey is enrolled for this email. Enroll one first in Settings.";
-    }
-
-    if (msg.includes("no account found")) {
-      return "No account found for that email.";
-    }
-
-    return raw || "Passkey login failed.";
-  };
 
   const finalizeLoginWithToken = async (authPayload, loginEmail) => {
     const deviceToken = getOrCreateDeviceToken();
@@ -267,7 +233,7 @@ const LoginPage = () => {
     try {
       setVoiceBusy(true);
       setVoiceFeedback("Recording voice sample...");
-      const embedding = await captureVoiceEmbedding(3000);
+      const audioData = await captureVoiceEmbedding(5000);
 
       setVoiceFeedback("Verifying voice...");
       const res = await fetch("http://localhost:3000/login/verify-voice", {
@@ -276,7 +242,7 @@ const LoginPage = () => {
         body: JSON.stringify({
           email: voiceChallenge.email,
           challengeId: voiceChallenge.challengeId,
-          embedding,
+          audioData,
         }),
       });
       const data = await res.json();
@@ -298,58 +264,6 @@ const LoginPage = () => {
       setVoiceFeedback("Voice verification failed. Please try again.");
     } finally {
       setVoiceBusy(false);
-    }
-  };
-
-  const handlePasskeyLogin = async () => {
-    if (!email) {
-      alert("Enter your email first, then use passkey login.");
-      return;
-    }
-
-    try {
-      setPasskeyBusy(true);
-
-      const optRes = await fetch("http://localhost:3000/webauthn/login/options-by-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const optData = await optRes.json();
-      if (!optRes.ok) throw new Error(optData.error || "Failed to start passkey login");
-
-      const asseResp = await startAuthentication(optData.options);
-
-      const verRes = await fetch("http://localhost:3000/webauthn/login/verify-by-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: optData.email || email,
-          userId: optData.userId,
-          asseResp,
-        }),
-      });
-      const verData = await verRes.json();
-      if (!verRes.ok) {
-        const lockMsg = verData.lockUntil
-          ? ` Locked until ${new Date(verData.lockUntil).toLocaleString()}.`
-          : "";
-        throw new Error((verData.error || "Passkey login failed") + lockMsg);
-      }
-
-      if (verData.requiresVoice) {
-        startVoiceFlow(verData, optData.email || email);
-        return;
-      }
-
-      if (verData.token) {
-        await finalizeLoginWithToken(verData, optData.email || email);
-      }
-    } catch (err) {
-      console.error(err);
-      alert(getPasskeyErrorMessage(err));
-    } finally {
-      setPasskeyBusy(false);
     }
   };
 
@@ -580,20 +494,6 @@ const LoginPage = () => {
             <span style={{ cursor: "pointer", color: "blue" }} onClick={() => navigate("/resetpassword")}>
               click here
             </span>
-          </div>
-        )}
-
-        {action === "Login" && (
-          <div className="passkey-row">
-            <button
-              type="button"
-              onClick={handlePasskeyLogin}
-              disabled={passkeyBusy}
-              className="passkey-btn"
-            >
-              {passkeyBusy ? "Authenticating..." : "Express Sign-In"}
-            </button>
-            <p className="passkey-note">Use Face ID, Touch ID, Windows Hello, or security key</p>
           </div>
         )}
 

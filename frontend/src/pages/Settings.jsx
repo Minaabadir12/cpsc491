@@ -358,14 +358,14 @@ const Settings = () => {
       setVoiceBusy(true);
       setVoiceFeedback("Recording voice sample...");
 
-      const embedding = await captureVoiceEmbedding(3500);
+      const audioData = await captureVoiceEmbedding(5000);
 
       setVoiceFeedback("Uploading enrollment sample...");
       const res = await fetchWithAuth(`http://localhost:3000/api/voice/enroll/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          embedding,
+          audioData,
           phrase: voicePhrase,
         }),
       });
@@ -388,13 +388,13 @@ const Settings = () => {
       setVoiceBusy(true);
       setVoiceFeedback("Recording verification sample...");
 
-      const embedding = await captureVoiceEmbedding(3000);
+      const audioData = await captureVoiceEmbedding(5000);
 
       setVoiceFeedback("Verifying voice...");
       const res = await fetchWithAuth(`http://localhost:3000/api/voice/verify/${userId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ embedding }),
+        body: JSON.stringify({ audioData }),
       });
 
       const data = await res.json();
