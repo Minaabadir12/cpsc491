@@ -5,6 +5,7 @@ const userSchema = new mongoose.Schema(
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password_hash: { type: String, required: true },
+  passwordChangedAt: { type: Date, default: Date.now },
   phone: { type: String, default: "" },
 
   storageUsed: { type: Number, default: 0 },
@@ -40,6 +41,17 @@ const userSchema = new mongoose.Schema(
       filename: String,
       size: Number,
       uploadedAt: { type: Date, default: Date.now },
+      scanStatus: {
+        type: String,
+        enum: ["pending", "clean", "infected", "error"],
+        default: "pending",
+      },
+      scanEngine: { type: String, default: null },
+      scanSignature: { type: String, default: null },
+      scannedAt: { type: Date, default: null },
+      quarantinePath: { type: String, default: null },
+      cleanPath: { type: String, default: null },
+      sha256: { type: String, default: null },
 
       encryptionMode: {
         type: String,
@@ -92,6 +104,7 @@ const userSchema = new mongoose.Schema(
   pendingDeviceToken: String,
   pendingDeviceName: String,
   pendingDeviceUserAgent: String,
+  createdAt: { type: Date, default: Date.now },
 
   /* =========================
      FILE SHARING
@@ -113,46 +126,65 @@ const userSchema = new mongoose.Schema(
   currentChallenge: String,
   webauthnCredentials: [
     {
-      credentialID: String,
-      publicKey: String,
+      credentialID: String,     // base64url string
+      publicKey: String,        // base64url string
       counter: { type: Number, default: 0 },
       transports: [String],
       createdAt: { type: Date, default: Date.now },
     },
   ],
 
-  /* =========================
-     RECENT ACTIVITY
-  ========================== */
+  // =========================
+  // RECENT ACTIVITY TRACKING
+  // =========================
   recentActivity: [
     {
       action: {
         type: String,
-        enum: [
-          "upload",
-          "delete",
-          "share",
-          "download",
-          "modify",
-          "device_added",
-          "device_removed",
-        ],
-        required: true,
+        enum: ['upload', 'delete', 'share', 'download', 'modify', 'device_added', 'device_removed', 'voice_enrolled', 'voice_verified', 'voice_failed', 'voice_removed'],
+        required: true
       },
       filename: {
         type: String,
-        required: true,
+        required: true
       },
       timestamp: {
         type: Date,
-        default: Date.now,
+        default: Date.now
       },
+      // Optional metadata for additional context
       metadata: {
         type: mongoose.Schema.Types.Mixed,
-        default: {},
-      },
+        default: {}
+      }
     },
   ],
+  voiceBiometrics: {
+    enabled: { type: Boolean, default: false },
+    loginRequired: { type: Boolean, default: false },
+    threshold: { type: Number, default: 0.9 },
+    phrase: { type: String, default: "My voice unlocks GuardFile" },
+    embeddings: [
+      {
+        vector: [{ type: Number }],
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    pendingChallenge: {
+      challengeId: { type: String, default: null },
+      phrase: { type: String, default: null },
+      expiresAt: { type: Date, default: null },
+      attempts: { type: Number, default: 0 },
+    },
+    failedAttempts: { type: Number, default: 0 },
+    lockUntil: { type: Date, default: null },
+    lastVerifiedAt: { type: Date, default: null },
+  },
+  authMetrics: {
+    failedLoginCount: { type: Number, default: 0 },
+    lastFailedLoginAt: { type: Date, default: null },
+    lastSuccessfulLoginAt: { type: Date, default: null },
+  },
 },
 { timestamps: true }
 );

@@ -101,6 +101,20 @@ const SharedFile = () => {
     );
   }
 
+  if (fileInfo.unavailable) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">
+          <AlertCircle className="w-16 h-16 text-orange-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">File Unavailable</h1>
+          <p className="text-gray-600">
+            This file is unavailable because it has not passed security scanning.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
