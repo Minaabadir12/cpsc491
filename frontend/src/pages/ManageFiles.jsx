@@ -28,7 +28,6 @@ const ManageFiles = () => {
   // Helper function to clean filenames
   const getDisplayName = (filename) => {
     if (!filename) return '';
-    // Remove timestamp prefix (e.g., "1769034580483-" from the beginning)
     return filename.replace(/^\d+-/, '');
   };
 
@@ -40,18 +39,15 @@ const ManageFiles = () => {
     return { label: "Scanning", className: "text-blue-700 bg-blue-100" };
   };
 
-  // ✅ Get userId and token safely
   const userId = localStorage.getItem("userId");
   const token = localStorage.getItem("token");
 
-  // 🔐 Redirect if not logged in
   useEffect(() => {
     if (!userId || !token) {
       navigate("/");
     }
   }, [userId, token, navigate]);
 
-  // 📡 Fetch dashboard data
   useEffect(() => {
     if (!userId || !token) return;
 
@@ -59,18 +55,16 @@ const ManageFiles = () => {
       try {
         const res = await fetchWithAuth(
           `http://localhost:3000/api/dashboard/${userId}`,
-          { cache: "no-store" } // prevent 304 Not Modified issues
+          { cache: "no-store" }
         );
 
         if (!res.ok) throw new Error("Failed to fetch dashboard");
 
         const data = await res.json();
-
         setUserData(data);
-        setFiles(data.uploads ?? []); // safe fallback
+        setFiles(data.uploads ?? []);
       } catch (err) {
         console.error(err);
-        // fetchWithAuth will handle logout if token is invalid
       } finally {
         setLoading(false);
       }
@@ -124,9 +118,8 @@ const ManageFiles = () => {
     );
   }
 
-  // safe default values
   const usedStorage = userData?.storageUsed ?? 0;
-  const totalStorage = userData?.storageLimit ?? 1; // avoid divide by zero
+  const totalStorage = userData?.storageLimit ?? 1;
 
   const filteredFiles = files.filter((file) =>
     getDisplayName(file.filename)?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -142,10 +135,8 @@ const ManageFiles = () => {
     const url = window.URL.createObjectURL(blob);
 
     if (viewableMimeTypes.includes(blob.type)) {
-      // Open in a new tab for preview (same as unencrypted behavior)
       window.open(url, "_blank");
     } else {
-      // Force download for non-viewable file types
       const a = document.createElement("a");
       a.href = url;
       a.download = displayName;
@@ -159,9 +150,27 @@ const ManageFiles = () => {
   const handleDownload = async (file) => {
     if (!file?.filename) return;
 
-    // Unencrypted: use original behavior
+    // ✅ All files now go through the authenticated API (fixes the double-dot/static route bug)
     if (!file.encryptionMode || file.encryptionMode === "none") {
-      window.open(`http://localhost:3000/uploads/${file.filename}`, "_blank");
+      try {
+        const res = await fetchWithAuth(
+          `http://localhost:3000/api/download/${userId}/${file.filename}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }
+        );
+        if (!res.ok) {
+          const errData = await res.json();
+          alert(errData.error || "Download failed");
+          return;
+        }
+        const blob = await res.blob();
+        downloadBlob(blob, file.filename);
+      } catch (err) {
+        alert("Download failed: " + err.message);
+      }
       return;
     }
 
@@ -195,7 +204,6 @@ const ManageFiles = () => {
     // Passkey-encrypted: run WebAuthn ceremony first
     if (file.encryptionMode === "passkey") {
       try {
-        // 1. Get WebAuthn options using the user's email
         const optRes = await fetch("http://localhost:3000/webauthn/login/options", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -204,13 +212,10 @@ const ManageFiles = () => {
         const optData = await optRes.json();
         if (!optRes.ok) throw new Error(optData.error || "Failed to get passkey options");
 
-        // Remove userId from options before passing to startAuthentication
         const { userId: _uid, ...authOptions } = optData;
 
-        // 2. Trigger biometric prompt
         const asseResp = await startAuthentication({ optionsJSON: authOptions });
 
-        // 3. Verify with backend
         const verRes = await fetch("http://localhost:3000/webauthn/login/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -219,7 +224,6 @@ const ManageFiles = () => {
         const verData = await verRes.json();
         if (!verRes.ok) throw new Error(verData.error || "Passkey verification failed");
 
-        // 4. Download the decrypted file
         const dlRes = await fetchWithAuth(
           `http://localhost:3000/api/download/${userId}/${file.filename}`,
           {
@@ -254,7 +258,6 @@ const ManageFiles = () => {
         { method: "DELETE" }
       );
 
-      // Check for authentication errors
       if (res.status === 401 || res.status === 403) {
         alert("Session expired. Please log in again.");
         logout();
@@ -270,7 +273,7 @@ const ManageFiles = () => {
         ...prev,
         storageUsed: data.storageUsed ?? prev.storageUsed,
       }));
-      
+
       alert("File deleted successfully!");
     } catch (err) {
       console.error(err);
