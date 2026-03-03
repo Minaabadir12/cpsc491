@@ -141,7 +141,7 @@ const userSchema = new mongoose.Schema(
     {
       action: {
         type: String,
-        enum: ['upload', 'delete', 'share', 'download', 'modify', 'device_added', 'device_removed', 'voice_enrolled', 'voice_verified', 'voice_failed', 'voice_removed'],
+        enum: ['upload', 'delete', 'share', 'download', 'modify', 'device_added', 'device_removed', 'voice_enrolled', 'voice_verified', 'voice_failed', 'voice_removed', 'login'],
         required: true
       },
       filename: {
