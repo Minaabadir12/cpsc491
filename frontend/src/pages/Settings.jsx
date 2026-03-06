@@ -829,14 +829,14 @@ const Settings = () => {
         {/* VOICE BIOMETRICS */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Voice Biometrics</h2>
+            <h2 className="text-xl font-semibold text-purple-700">Voice Biometrics</h2>
             <span className={`px-2 py-1 rounded-full text-xs font-medium ${voiceEnabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
               {voiceEnabled ? "Enabled" : "Disabled"}
             </span>
           </div>
 
           <div className="mb-3">
-            <label className="block text-sm font-medium mb-1">Phrase</label>
+            <label className="block text-sm font-medium mb-1 text-purple-600">Phrase</label>
             <input
               type="text"
               value={voicePhrase}
@@ -859,7 +859,7 @@ const Settings = () => {
               <span className="text-sm font-medium">Require at login</span>
             </label>
             <div>
-              <label className="block text-sm font-medium mb-1">Threshold</label>
+              <label className="block text-sm font-medium mb-1 text-purple-600">Threshold</label>
               <input
                 type="number"
                 min="0.75"
