@@ -77,6 +77,7 @@ const HomePage = () => {
       share: { icon: "↗", color: "text-blue-600", bgColor: "bg-blue-100", label: "Shared" },
       download: { icon: "↓", color: "text-purple-600", bgColor: "bg-purple-100", label: "Downloaded" },
       modify: { icon: "✎", color: "text-yellow-600", bgColor: "bg-yellow-100", label: "Modified" },
+      login: { icon: "🔑", color: "text-blue-600", bgColor: "bg-blue-100", label: "Logged In" },
       device_added: { icon: "💻", color: "text-teal-600", bgColor: "bg-teal-100", label: "Device Added" },
       device_removed: { icon: "⊗", color: "text-orange-600", bgColor: "bg-orange-100", label: "Device Removed" },
       voice_enrolled: { icon: "🎤", color: "text-indigo-600", bgColor: "bg-indigo-100", label: "Voice Enrolled" },

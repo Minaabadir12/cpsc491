@@ -145,7 +145,17 @@ async function recordFailedAuth(user, reason = "failed_login") {
   await logActivity(user._id.toString(), "modify", label, { authEvent: reason });
 }
 
-async function recordSuccessfulAuth(user, reason = "login_success") {
+function parseBrowserName(userAgent = "") {
+  if (!userAgent) return "Unknown Browser";
+  if (userAgent.includes("Edg/")) return "Edge";
+  if (userAgent.includes("OPR/") || userAgent.includes("Opera")) return "Opera";
+  if (userAgent.includes("Chrome")) return "Chrome";
+  if (userAgent.includes("Firefox")) return "Firefox";
+  if (userAgent.includes("Safari")) return "Safari";
+  return "Unknown Browser";
+}
+
+async function recordSuccessfulAuth(user, reason = "login_success", userAgent = "") {
   if (!user) return;
   if (!user.authMetrics) {
     user.authMetrics = {
@@ -157,7 +167,8 @@ async function recordSuccessfulAuth(user, reason = "login_success") {
   user.authMetrics.failedLoginCount = 0;
   user.authMetrics.lastSuccessfulLoginAt = new Date();
   await user.save();
-  await logActivity(user._id.toString(), "modify", "Authentication", { authEvent: reason });
+  const browser = parseBrowserName(userAgent);
+  await logActivity(user._id.toString(), "login", `Logged in via ${browser}`, { authEvent: reason });
 }
 
 function normalizeEmbedding(embedding) {
@@ -669,7 +680,7 @@ app.post("/login", async (req, res) => {
     }
 
     const token = issueAuthToken(user);
-    await recordSuccessfulAuth(user, "password_login");
+    await recordSuccessfulAuth(user, "password_login", req.headers["user-agent"]);
 
     res.json({
       message: "Login successful",
@@ -1666,7 +1677,7 @@ app.post("/login/verify-2fa", async (req, res) => {
     }
 
     const token = issueAuthToken(user);
-    await recordSuccessfulAuth(user, "2fa_login");
+    await recordSuccessfulAuth(user, "2fa_login", req.headers["user-agent"]);
 
     res.json({
       message: "Login successful",
@@ -1758,7 +1769,7 @@ app.post("/login/verify-voice", async (req, res) => {
       await user.save();
       await logActivity(user._id.toString(), "voice_removed", "Voice login", { reason: "outdated_profile_auto_reset" });
       const token = issueAuthToken(user);
-      await recordSuccessfulAuth(user, "password_login");
+      await recordSuccessfulAuth(user, "password_login", req.headers["user-agent"]);
       return res.json({
         message: "Login successful. Your voice profile was outdated and has been reset — please re-enroll in Settings.",
         token,
@@ -1829,7 +1840,7 @@ app.post("/login/verify-voice", async (req, res) => {
     });
 
     const token = issueAuthToken(user);
-    await recordSuccessfulAuth(user, "voice_login");
+    await recordSuccessfulAuth(user, "voice_login", req.headers["user-agent"]);
     return res.json({
       message: "Voice verified. Login successful",
       token,
