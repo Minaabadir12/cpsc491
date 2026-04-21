@@ -396,26 +396,6 @@ const ManageFiles = () => {
           </p>
         </div>
 
-        {/* Search Bar */}
-        <div className="mb-8 flex justify-center">
-          <div className="flex w-full max-w-md">
-            <button
-              onClick={() => setSearchTerm(searchInput)}
-              className="px-5 py-2 bg-purple-600 text-white font-medium rounded-l-lg hover:bg-purple-700 transition"
-            >
-              Search
-            </button>
-            <input
-              type="text"
-              placeholder="Search files..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && setSearchTerm(searchInput)}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-            />
-          </div>
-        </div>
-
         {/* Files Grid */}
         {filteredFiles.length === 0 ? (
           <p className="text-gray-400 text-center text-lg py-12">

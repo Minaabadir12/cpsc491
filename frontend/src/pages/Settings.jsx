@@ -826,92 +826,6 @@ const Settings = () => {
           </div>
         </div>
 
-        {/* VOICE BIOMETRICS */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-purple-700">Voice Biometrics</h2>
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${voiceEnabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
-              {voiceEnabled ? "Enabled" : "Disabled"}
-            </span>
-          </div>
-
-          <div className="mb-3">
-            <label className="block text-sm font-medium mb-1 text-purple-600">Phrase</label>
-            <input
-              type="text"
-              value={voicePhrase}
-              onChange={(e) => setVoicePhrase(e.target.value.slice(0, 140))}
-              className="input input-bordered w-full max-w-lg"
-              placeholder="My voice unlocks GuardFile"
-              disabled={voiceBusy}
-            />
-          </div>
-
-          <div className="mb-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={voiceLoginRequired}
-                onChange={(e) => setVoiceLoginRequired(e.target.checked)}
-                className="checkbox checkbox-primary"
-                disabled={voiceBusy}
-              />
-              <span className="text-sm font-medium">Require at login</span>
-            </label>
-            <div>
-              <label className="block text-sm font-medium mb-1 text-purple-600">Threshold</label>
-              <input
-                type="number"
-                min="0.75"
-                max="0.99"
-                step="0.01"
-                value={voiceThreshold}
-                onChange={(e) => setVoiceThreshold(e.target.value)}
-                className="input input-bordered w-full max-w-xs"
-                disabled={voiceBusy}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2 mb-3">
-            <button onClick={handleEnrollVoice} className="btn btn-primary" disabled={voiceBusy}>
-              {voiceBusy ? "Working..." : "Enroll Sample"}
-            </button>
-            <button
-              onClick={handleVerifyVoice}
-              className="btn btn-outline btn-success"
-              disabled={voiceBusy || voiceSampleCount === 0}
-            >
-              {voiceBusy ? "Working..." : "Verify"}
-            </button>
-            <button
-              onClick={handleRemoveVoice}
-              className="btn btn-outline btn-error"
-              disabled={voiceBusy || voiceSampleCount === 0}
-            >
-              Remove
-            </button>
-            <button
-              onClick={handleSaveVoicePolicy}
-              className="btn btn-outline"
-              disabled={voiceBusy}
-            >
-              Save
-            </button>
-          </div>
-
-          <div className="flex flex-wrap gap-2 text-xs mb-1">
-            <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">Samples: {voiceSampleCount}</span>
-            <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">Threshold: {Number(voiceThreshold).toFixed(2)}</span>
-            <span className={`px-2 py-1 rounded-full ${voiceLockUntil ? "bg-rose-100 text-rose-700" : "bg-green-100 text-green-700"}`}>
-              {voiceLockUntil ? `Locked` : "Not locked"}
-            </span>
-          </div>
-
-          {voiceFeedback && (
-            <p className="text-xs mt-2 text-blue-700">{voiceFeedback}</p>
-          )}
-        </div>
 
         {/* PASSWORD CHANGE */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
@@ -1183,24 +1097,6 @@ const Settings = () => {
               </div>
             )}
           </div>
-        </div>
-
-        {/* OTHER SECURITY SETTINGS */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4 text-purple-700">Other Security Settings</h2>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={loginAlerts} onChange={() => setLoginAlerts(!loginAlerts)} className="checkbox checkbox-primary" />
-            <span>Login Alerts</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={emailNotifications} onChange={() => setEmailNotifications(!emailNotifications)} className="checkbox checkbox-primary" />
-            <span>Email Notifications</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={dataEncryption} onChange={() => setDataEncryption(!dataEncryption)} className="checkbox checkbox-primary" />
-            <span>Enable Data Encryption</span>
-          </label>
-          <p className="text-sm text-gray-500 mt-4">Note: These preferences are currently for display only.</p>
         </div>
 
         {/* DEVICE AUTH */}

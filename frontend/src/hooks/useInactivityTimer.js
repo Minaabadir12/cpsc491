@@ -1,82 +1,32 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { logout, refreshToken } from "../utils/api";
+import { logout } from "../utils/api";
 
-const TIMEOUT_DURATION = 10 * 60 * 1000; // 10 minutes
-const WARNING_TIME = 1 * 60 * 1000; // 1 minute warning
+const TIMEOUT_DURATION = 10 * 60 * 10000; // 10 minutes
+const WARNING_TIME = 1 * 60 * 10000; // 1 minute
 
 export const useInactivityTimer = () => {
-  const timerRef = useRef(null);
-  const warningTimerRef = useRef(null);
-  const warningShownRef = useRef(false);
   const location = useLocation();
 
-  const resetTimer = async () => {
-    // Reset warning sown flag
-    warningShownRef.current = false;
-    
-    // Clear existing timers
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
-    if (warningTimerRef.current) {
-      clearTimeout(warningTimerRef.current);
-    }
+  const lastActivityRef = useRef(Date.now());
+  const warningShownRef = useRef(false);
 
-    // Refresh the JWT token on activity
-    const refreshed = await refreshToken();
-    
-    if (!refreshed) {
-      logout();
-      return;
-    }
-
-    // Set warning timer
-    warningTimerRef.current = setTimeout(() => {
-      if (warningShownRef.current) {
-        return;
-      }
-      
-      warningShownRef.current = true;
-      
-      const shouldStay = window.confirm(
-        "You've been inactive. You'll be logged out in " + (WARNING_TIME / 1000) + " seconds. Click OK to stay logged in."
-      );
-      
-      if (shouldStay) {
-        resetTimer();
-      } else {
-      }
-    }, TIMEOUT_DURATION - WARNING_TIME);
-
-
-    // Set logout timer
-    timerRef.current = setTimeout(() => {
-      alert("You've been logged out due to inactivity.");
-      logout();
-    }, TIMEOUT_DURATION);
-    
+  // Update last activity timestamp only (NO API CALLS HERE)
+  const updateActivity = () => {
+    lastActivityRef.current = Date.now();
   };
 
   useEffect(() => {
-    
-    // Don't run timer on login/signup pages - use EXACT matches
     const publicRoutes = ["/", "/resetpassword"];
-    const isPublicRoute = publicRoutes.includes(location.pathname) || 
-                          location.pathname.startsWith("/newpassword/");
-    
-    if (isPublicRoute) {
-      return;
-    }
-    
-    // Only start timer if user is logged in
-    const token = localStorage.getItem("token");
-    if (!token) {
-      return;
-    }
+    const isPublicRoute =
+      publicRoutes.includes(location.pathname) ||
+      location.pathname.startsWith("/newpassword/");
 
-    // Activity events to track
-    const activityEvents = [
+    const token = localStorage.getItem("token");
+
+    if (isPublicRoute || !token) return;
+
+    const events = [
       "mousedown",
       "mousemove",
       "keypress",
@@ -85,38 +35,46 @@ export const useInactivityTimer = () => {
       "click",
     ];
 
-    // Throttle the resetTimer to avoid too many refresh calls
-    let throttleTimeout;
-    const throttledResetTimer = () => {
-      if (throttleTimeout) {
-        return;
-      }
-      
-      throttleTimeout = setTimeout(() => {
-        resetTimer();
-        throttleTimeout = null;
-      }, 5000); // Only refresh token at most once every 5 seconds
-    };
-
-    // Add event listeners
-    activityEvents.forEach((event) => {
-      document.addEventListener(event, throttledResetTimer, true);
+    // Attach activity listeners
+    events.forEach((event) => {
+      document.addEventListener(event, updateActivity, true);
     });
-    
-    // Initialize timer
-    resetTimer();
+
+    // Main inactivity checker
+    const interval = setInterval(() => {
+      const inactiveTime = Date.now() - lastActivityRef.current;
+
+      // Show warning once
+      if (
+        inactiveTime >= TIMEOUT_DURATION - WARNING_TIME &&
+        inactiveTime < TIMEOUT_DURATION &&
+        !warningShownRef.current
+      ) {
+        warningShownRef.current = true;
+
+        const stayLoggedIn = window.confirm(
+          "You've been inactive. You will be logged out soon. Click OK to stay signed in."
+        );
+
+        if (stayLoggedIn) {
+          lastActivityRef.current = Date.now();
+          warningShownRef.current = false;
+        }
+      }
+
+      // Logout after timeout
+      if (inactiveTime >= TIMEOUT_DURATION) {
+        alert("You've been logged out due to inactivity.");
+        logout();
+      }
+    }, 1000);
 
     // Cleanup
     return () => {
-
-      activityEvents.forEach((event) => {
-        document.removeEventListener(event, throttledResetTimer, true);
+      events.forEach((event) => {
+        document.removeEventListener(event, updateActivity, true);
       });
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
-      if (throttleTimeout) clearTimeout(throttleTimeout);
+      clearInterval(interval);
     };
-  }, [location.pathname]); // Re-run when route changes
-
-  return null;
+  }, [location.pathname]);
 };
