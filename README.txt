@@ -19,7 +19,7 @@ Installation
 
 3. Install dependencies: 
     npm install
-    mpm install express
+    npm install express
 
 4. Start the server on backend: npm start
 
