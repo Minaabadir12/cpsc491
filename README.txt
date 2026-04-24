@@ -7,7 +7,7 @@ availability (CIA triad). Users can securely upload, store, and manage files whi
 overall security posture through an interactive security score.
 
 Requirements - Before running GuardFile, ensure you have the following installed:
-Node.js (v16 or higher) (or your actual version)
+Node.js (v16 or higher) 
 npm (Node Package Manager)
 Git
 A modern web browser (Chrome, Edge, Firefox)
